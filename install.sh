@@ -95,6 +95,14 @@ ok "VM id: $VMID"
 pvesm status --storage "$STORAGE" >/dev/null 2>&1 || die "Storage '$STORAGE' not found (override with STORAGE=...)."
 pvesm status --storage "$ISO_STORAGE" >/dev/null 2>&1 || die "ISO storage '$ISO_STORAGE' not found (override with ISO_STORAGE=...)."
 
+# A macOS Tahoe install writes roughly 35 GB of real data
+STORAGE_AVAIL_KB="$(pvesm status --storage "$STORAGE" 2>/dev/null | awk 'NR==2 {print $6}')"
+if [[ "$STORAGE_AVAIL_KB" =~ ^[0-9]+$ ]] && (( STORAGE_AVAIL_KB < 40 * 1024 * 1024 )); then
+    warn "Storage '$STORAGE' has only $((STORAGE_AVAIL_KB / 1024 / 1024)) GiB available."
+    warn "macOS Tahoe needs ~35-40 GiB of real space: the install may fail."
+    warn "Free some space or use another storage (STORAGE=...)."
+fi
+
 # ------------------------------------------------------------- host preparation
 info "Configuring KVM (ignore_msrs)..."
 echo "options kvm ignore_msrs=1" > /etc/modprobe.d/kvm-macos.conf
@@ -138,15 +146,19 @@ if [[ $NEED_CRYPTEX -eq 1 ]]; then
         CTMP="$WORK_DIR/cryptex-build"
         rm -rf "$CTMP" && mkdir -p "$CTMP"
 
-        CRYPTEX_ZIP_URL="$(curl -fsSL https://api.github.com/repos/acidanthera/CryptexFixup/releases/latest \
-            | python3 -c "import json,sys; print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if 'RELEASE' in a['name']][0])")"
+        CRYPTEX_ZIP_URL="$(curl -fsSL https://api.github.com/repos/acidanthera/CryptexFixup/releases/latest 2>/dev/null \
+            | python3 -c "import json,sys; print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if 'RELEASE' in a['name']][0])" 2>/dev/null || true)"
+        # Fallback to a pinned release if the GitHub API is rate-limited
+        [[ -n "$CRYPTEX_ZIP_URL" ]] || CRYPTEX_ZIP_URL="https://github.com/acidanthera/CryptexFixup/releases/download/1.0.5/CryptexFixup-1.0.5-RELEASE.zip"
         curl -fsSL -o "$CTMP/cryptex.zip" "$CRYPTEX_ZIP_URL"
         python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
             "$CTMP/cryptex.zip" "$CTMP"
         [[ -d "$CTMP/CryptexFixup.kext" ]] || die "CryptexFixup.kext not found in release archive."
 
+        # xorriso may exit non-zero on mere warnings: check the output instead
         xorriso -osirrox on -indev "$ISO_DIR/$OPENCORE_ISO" \
-            -extract /BOOT.img "$CTMP/BOOT.img" >/dev/null 2>&1
+            -extract /BOOT.img "$CTMP/BOOT.img" >/dev/null 2>&1 || true
+        [[ -f "$CTMP/BOOT.img" ]] || die "Failed to extract BOOT.img from the OpenCore ISO."
         chmod +w "$CTMP/BOOT.img"
 
         mcopy -i "$CTMP/BOOT.img" ::/EFI/OC/config.plist "$CTMP/config.plist"
@@ -184,8 +196,8 @@ PYEOF
         mcopy -i "$CTMP/BOOT.img" -o "$CTMP/config.plist" ::/EFI/OC/config.plist
 
         xorriso -indev "$ISO_DIR/$OPENCORE_ISO" -outdev "$ISO_DIR/$CRYPTEX_ISO" \
-            -map "$CTMP/BOOT.img" /BOOT.img -boot_image any replay >/dev/null 2>&1
-        [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]] || die "Failed to rebuild the OpenCore ISO."
+            -map "$CTMP/BOOT.img" /BOOT.img -boot_image any replay >/dev/null 2>&1 || true
+        [[ -s "$ISO_DIR/$CRYPTEX_ISO" ]] || die "Failed to rebuild the OpenCore ISO."
         rm -rf "$CTMP"
         ok "CryptexFixup OpenCore ISO ready"
     fi
