@@ -42,7 +42,6 @@ MACRECOVERY_URL="https://raw.githubusercontent.com/acidanthera/OpenCorePkg/maste
 TAHOE_BOARD_ID="Mac-CFF7D910A743CAAF"
 OSK="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc"
 
-ISO_DIR="/var/lib/vz/template/iso"
 WORK_DIR="/root/macos-tahoe-installer"
 
 # ---------------------------------------------------------------------- helpers
@@ -95,6 +94,10 @@ ok "VM id: $VMID"
 
 pvesm status --storage "$STORAGE" >/dev/null 2>&1 || die "Storage '$STORAGE' not found (override with STORAGE=...)."
 pvesm status --storage "$ISO_STORAGE" >/dev/null 2>&1 || die "ISO storage '$ISO_STORAGE' not found (override with ISO_STORAGE=...)."
+
+# Resolve the ISO directory from the actual ISO storage configuration
+ISO_DIR="$(dirname "$(pvesm path "$ISO_STORAGE:iso/probe.iso" 2>/dev/null)" 2>/dev/null || true)"
+[[ -n "$ISO_DIR" && "$ISO_DIR" != "." ]] || ISO_DIR="/var/lib/vz/template/iso"
 
 # A macOS Tahoe install writes roughly 35 GB of real data
 STORAGE_AVAIL_KB="$(pvesm status --storage "$STORAGE" 2>/dev/null | awk 'NR==2 {print $6}')"
@@ -252,10 +255,16 @@ SIZE_EXTENTS=$(( (SIZE_BYTES + 4194303) / 4194304 ))   # 4 MiB LVM extents
 SIZE_KIB=$(( SIZE_EXTENTS * 4096 ))
 RECOVERY_VOL="$(pvesm alloc "$STORAGE" "$VMID" '' "$SIZE_KIB" --format raw | grep -o "'[^']*'" | tr -d "'" | tail -n1)"
 [[ -n "$RECOVERY_VOL" ]] || die "Failed to allocate the recovery volume."
-RECOVERY_DEV="$(pvesm path "$RECOVERY_VOL")"
-[[ -n "$RECOVERY_DEV" ]] || die "Failed to resolve the recovery volume path."
-dd if="$RECOVERY_IMG" of="$RECOVERY_DEV" bs=4M conv=fsync status=progress </dev/null
-qm set "$VMID" --sata0 "$RECOVERY_VOL"
+RECOVERY_DEV="$(pvesm path "$RECOVERY_VOL" 2>/dev/null || true)"
+if [[ -n "$RECOVERY_DEV" && -e "$RECOVERY_DEV" ]]; then
+    dd if="$RECOVERY_IMG" of="$RECOVERY_DEV" bs=4M conv=fsync status=progress </dev/null
+    qm set "$VMID" --sata0 "$RECOVERY_VOL"
+else
+    # Storage without a writable local path (e.g. RBD): use qemu-img import
+    pvesm free "$RECOVERY_VOL" >/dev/null 2>&1 || true
+    warn "Storage has no direct path — falling back to qemu-img import"
+    qm set "$VMID" --sata0 "$STORAGE:0,import-from=$RECOVERY_IMG"
+fi
 
 ok "VM $VMID created"
 
