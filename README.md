@@ -25,7 +25,7 @@ Run it **as root on the Proxmox host**. The script:
 
 ## Options
 
-Every setting can be overridden with environment variables:
+Run interactively (in a terminal), the script asks for the essentials: **macOS version** (Tahoe, Sequoia, Sonoma, Ventura), **storage**, **RAM** and **disk size** — press Enter to accept the defaults. Every setting can also be given as an environment variable, which skips its question (and without a terminal the defaults apply — automation stays non-interactive):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | \
@@ -44,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 | `BRIDGE`      | `vmbr0`        | Network bridge            |
 | `START`       | `1`            | Start the VM at the end (`0` to disable) |
 | `CPU_MODEL`   | auto           | Virtual CPU model presented to macOS (auto-picked from host capabilities) |
+| `VERSION`     | `tahoe`        | macOS version: `tahoe`, `sequoia`, `sonoma`, `ventura` |
+| `INTERACTIVE` | `1`            | `0` disables the terminal questions |
 
 ## After the script
 

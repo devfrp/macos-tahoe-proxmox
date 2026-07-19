@@ -18,6 +18,8 @@
 #   ISO_STORAGE  ISO storage            (default: local)
 #   BRIDGE       network bridge         (default: vmbr0)
 #   START        start the VM at the end (default: 1, set 0 to disable)
+#   VERSION      macOS version: tahoe (default), sequoia, sonoma, ventura
+#   INTERACTIVE  set 0 to disable the terminal questions
 #   CPU_MODEL    virtual CPU model      (default: auto — best model the host
 #                supports; on non-AVX2 hosts CryptexFixup is injected into
 #                OpenCore automatically so macOS Tahoe still installs)
@@ -26,20 +28,20 @@ set -Eeuo pipefail
 trap 'echo -e "\033[1;31m[x]\033[0m Command failed (line $LINENO): $BASH_COMMAND" >&2' ERR
 
 # ---------------------------------------------------------------- configuration
-VM_NAME="${VM_NAME:-macos-tahoe}"
+VM_NAME="${VM_NAME:-}"
 CORES="${CORES:-4}"
-RAM="${RAM:-8192}"
-DISK="${DISK:-80}"
-STORAGE="${STORAGE:-local-lvm}"
+RAM="${RAM:-}"
+DISK="${DISK:-}"
+STORAGE="${STORAGE:-}"
 ISO_STORAGE="${ISO_STORAGE:-local}"
 BRIDGE="${BRIDGE:-vmbr0}"
 START="${START:-1}"
+MACOS_VERSION="${VERSION:-}"
 
 OPENCORE_VERSION="v0.7"
 OPENCORE_URL="https://github.com/LongQT-sea/OpenCore-ISO/releases/download/${OPENCORE_VERSION}/LongQT-OpenCore-${OPENCORE_VERSION}.iso"
 OPENCORE_ISO="LongQT-OpenCore-${OPENCORE_VERSION}.iso"
 MACRECOVERY_URL="https://raw.githubusercontent.com/acidanthera/OpenCorePkg/master/Utilities/macrecovery/macrecovery.py"
-TAHOE_BOARD_ID="Mac-CFF7D910A743CAAF"
 OSK="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc"
 
 WORK_DIR="/root/macos-tahoe-installer"
@@ -167,6 +169,50 @@ if [[ $NEED_CRYPTEX -eq 1 ]]; then
 fi
 ok "Virtual CPU: ${CPU_MODEL}"
 
+# -------------------------------------------------------------- interactive setup
+# With a terminal available, ask for the main settings; environment variables
+# (VERSION=... STORAGE=... RAM=... DISK=...) skip the questions, and without
+# a terminal the defaults apply — automation stays fully non-interactive.
+ask() {
+    local a
+    printf '%s [%s]: ' "$1" "$2" > /dev/tty
+    IFS= read -r a < /dev/tty || a=""
+    echo "${a:-$2}"
+}
+if [[ "${INTERACTIVE:-1}" == "1" ]] && { : </dev/tty; } 2>/dev/null && { : >/dev/tty; } 2>/dev/null; then
+    if [[ -z "$MACOS_VERSION" ]]; then
+        printf '\n  1) Tahoe (26)  2) Sequoia (15)  3) Sonoma (14)  4) Ventura (13)\n' > /dev/tty
+        case "$(ask "macOS version" 1)" in
+            2*|*[sS]equoia*) MACOS_VERSION=sequoia ;;
+            3*|*[sS]onoma*)  MACOS_VERSION=sonoma ;;
+            4*|*[vV]entura*) MACOS_VERSION=ventura ;;
+            *)               MACOS_VERSION=tahoe ;;
+        esac
+    fi
+    if [[ -z "$STORAGE" ]]; then
+        printf '\n  Available storages for the VM disks:\n' > /dev/tty
+        pvesm status --content images 2>/dev/null \
+            | awk 'NR>1 {printf "    %-16s %6.1f GiB free\n", $1, $6/1024/1024}' > /dev/tty
+        STORAGE="$(ask "Storage" local-lvm)"
+    fi
+    [[ -n "$RAM"  ]] || RAM="$(ask "RAM in MiB" 8192)"
+    [[ -n "$DISK" ]] || DISK="$(ask "Disk size in GiB" 80)"
+fi
+MACOS_VERSION="${MACOS_VERSION:-tahoe}"
+STORAGE="${STORAGE:-local-lvm}"
+RAM="${RAM:-8192}"
+DISK="${DISK:-80}"
+
+case "$MACOS_VERSION" in
+    tahoe)   MACOS_NAME="Tahoe";   BOARD_ID="Mac-CFF7D910A743CAAF"; OS_ARG="latest" ;;
+    sequoia) MACOS_NAME="Sequoia"; BOARD_ID="Mac-7BA5B2D9E42DDD94"; OS_ARG="default" ;;
+    sonoma)  MACOS_NAME="Sonoma";  BOARD_ID="Mac-827FAC58A8FDFA22"; OS_ARG="default" ;;
+    ventura) MACOS_NAME="Ventura"; BOARD_ID="Mac-B4831CEBD52A0C4C"; OS_ARG="default" ;;
+    *) die "Unknown VERSION '$MACOS_VERSION' (tahoe|sequoia|sonoma|ventura)" ;;
+esac
+VM_NAME="${VM_NAME:-macos-$MACOS_VERSION}"
+ok "Target: macOS $MACOS_NAME, storage $STORAGE, ${RAM} MiB RAM, ${DISK}G disk"
+
 VMID="${VMID:-$(pvesh get /cluster/nextid)}"
 if qm status "$VMID" >/dev/null 2>&1; then
     die "VM $VMID already exists. Set another id: curl ... | VMID=xxx bash"
@@ -184,7 +230,7 @@ ISO_DIR="$(dirname "$(pvesm path "$ISO_STORAGE:iso/probe.iso" 2>/dev/null)" 2>/d
 STORAGE_AVAIL_KB="$(pvesm status --storage "$STORAGE" 2>/dev/null | awk 'NR==2 {print $6}')"
 if [[ "$STORAGE_AVAIL_KB" =~ ^[0-9]+$ ]] && (( STORAGE_AVAIL_KB < 40 * 1024 * 1024 )); then
     warn "Storage '$STORAGE' has only $((STORAGE_AVAIL_KB / 1024 / 1024)) GiB available."
-    warn "macOS Tahoe needs ~35-40 GiB of real space: the install may fail."
+    warn "A macOS install needs ~35-40 GiB of real space: it may fail."
     warn "Free some space or use another storage (STORAGE=...)."
 fi
 
@@ -297,14 +343,14 @@ PYEOF
     fi
 fi
 
-# ------------------------------------------------------------- Tahoe recovery image
-RECOVERY_IMG="$WORK_DIR/tahoe-recovery.img"
+# ----------------------------------------------------------- macOS recovery image
+RECOVERY_IMG="$WORK_DIR/${MACOS_VERSION}-recovery.img"
 if [[ -f "$RECOVERY_IMG" ]]; then
     ok "Recovery image already present"
 else
-    info "Downloading macOS Tahoe recovery from Apple servers..."
+    info "Downloading macOS $MACOS_NAME recovery from Apple servers..."
     curl -fsSL -o macrecovery.py "$MACRECOVERY_URL"
-    python3 macrecovery.py -b "$TAHOE_BOARD_ID" -m 00000000000000000 -os latest download
+    python3 macrecovery.py -b "$BOARD_ID" -m 00000000000000000 -os "$OS_ARG" download
     DMG="$(find "$WORK_DIR" -name 'BaseSystem.dmg' | head -n1)"
     [[ -n "$DMG" ]] || die "BaseSystem.dmg not found after download."
     info "Converting recovery image (dmg2img)..."
@@ -392,7 +438,7 @@ fi
 # ----------------------------------------------------------------------- summary
 echo
 echo -e "${c_green}=========================================================${c_reset}"
-echo -e "${c_green}  macOS Tahoe VM ready to install${c_reset}"
+echo -e "${c_green}  macOS $MACOS_NAME VM ready to install${c_reset}"
 echo -e "${c_green}=========================================================${c_reset}"
 echo
 echo "  VM id      : $VMID"
@@ -414,7 +460,7 @@ fi
 echo "  2. Open the console in the Proxmox web UI"
 echo "  3. In OpenCore, boot 'macOS Base System'"
 echo "  4. Disk Utility -> erase the ${DISK}G VirtIO disk (APFS, GUID)"
-echo "  5. Install macOS Tahoe (downloads from Apple, ~30-60 min)"
+echo "  5. Install macOS $MACOS_NAME (downloads from Apple, ~30-60 min)"
 echo "  6. Once on the macOS desktop, make the VM standalone:"
 echo "       curl -fsSL <this script's URL> | bash -s -- finalize $VMID"
 echo

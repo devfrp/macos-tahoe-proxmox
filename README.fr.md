@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 
 ## Options
 
-Chaque réglage est modifiable par variable d'environnement :
+Lancé dans un terminal, le script pose les questions essentielles : **version de macOS** (Tahoe, Sequoia, Sonoma, Ventura), **stockage**, **RAM** et **taille de disque** — Entrée pour accepter les défauts. Chaque réglage peut aussi être passé en variable d'environnement, ce qui saute la question correspondante (et sans terminal, les défauts s'appliquent — l'automatisation reste non-interactive) :
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | \
@@ -44,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 | `BRIDGE`      | `vmbr0`         | Pont réseau                    |
 | `START`       | `1`             | Démarrer la VM à la fin (`0` pour désactiver) |
 | `CPU_MODEL`   | auto            | Modèle de CPU virtuel présenté à macOS (choisi selon les capacités de l'hôte) |
+| `VERSION`     | `tahoe`         | Version de macOS : `tahoe`, `sequoia`, `sonoma`, `ventura` |
+| `INTERACTIVE` | `1`             | `0` désactive les questions dans le terminal |
 
 ## Après le script
 
