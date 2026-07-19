@@ -237,12 +237,15 @@ qm create "$VMID" \
     --agent enabled=1 \
     --tablet 1
 
+# Light configuration first, heavy disk imports last: if a slow storage
+# stalls an import, the VM is still fully configured and easy to finish.
+qm set "$VMID" --args "-device isa-applesmc,osk=\"$OSK\" -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -global nec-usb-xhci.msi=off -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off $CPU_ARGS"
+qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
+qm set "$VMID" --boot order=ide2
 qm set "$VMID" --efidisk0 "$STORAGE:1,efitype=4m,pre-enrolled-keys=0"
 qm set "$VMID" --virtio0 "$STORAGE:$DISK,cache=unsafe,discard=on"
-qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
+info "Importing the recovery disk (can take a while on slow storage)..."
 qm set "$VMID" --sata0 "$STORAGE:0,import-from=$RECOVERY_IMG"
-qm set "$VMID" --boot order=ide2
-qm set "$VMID" --args "-device isa-applesmc,osk=\"$OSK\" -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -global nec-usb-xhci.msi=off -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off $CPU_ARGS"
 
 ok "VM $VMID created"
 
