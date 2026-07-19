@@ -76,11 +76,11 @@
       <code id="cmd-en">curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash</code>
       <button class="copy" onclick="copyCmd('cmd-en', this)">Copy</button>
     </div>
-    <p class="hint">Run as root on the Proxmox host. Requires a CPU with AVX2.</p>
+    <p class="hint">Run as root on the Proxmox host. Works on any Intel or AMD CPU, with or without AVX2.</p>
     <h2>What it does</h2>
     <ol>
-      <li>Checks the host (Proxmox VE, virtualization, AVX2)</li>
-      <li>Downloads the OpenCore boot loader ISO</li>
+      <li>Checks the host and auto-picks a compatible virtual CPU</li>
+      <li>Downloads the OpenCore boot loader ISO (adds CryptexFixup on non-AVX2 hosts)</li>
       <li>Fetches the official macOS Tahoe recovery from Apple's servers</li>
       <li>Creates a fully configured VM (q35, OVMF, VirtIO)</li>
     </ol>
@@ -96,11 +96,11 @@
       <code id="cmd-fr">curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash</code>
       <button class="copy" onclick="copyCmd('cmd-fr', this)">Copier</button>
     </div>
-    <p class="hint">À lancer en root sur l'hôte Proxmox. Nécessite un CPU avec AVX2.</p>
+    <p class="hint">À lancer en root sur l'hôte Proxmox. Fonctionne sur tout CPU Intel ou AMD, avec ou sans AVX2.</p>
     <h2>Ce que ça fait</h2>
     <ol>
-      <li>Vérifie l'hôte (Proxmox VE, virtualisation, AVX2)</li>
-      <li>Télécharge l'ISO du chargeur OpenCore</li>
+      <li>Vérifie l'hôte et choisit automatiquement un CPU virtuel compatible</li>
+      <li>Télécharge l'ISO du chargeur OpenCore (ajoute CryptexFixup sans AVX2)</li>
       <li>Récupère la recovery officielle macOS Tahoe depuis les serveurs Apple</li>
       <li>Crée une VM entièrement configurée (q35, OVMF, VirtIO)</li>
     </ol>

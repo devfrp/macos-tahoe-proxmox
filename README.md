@@ -10,16 +10,16 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 
 Run it **as root on the Proxmox host**. The script:
 
-1. Checks the host (Proxmox VE, VT-x/AMD-V, **AVX2** — required by Tahoe)
+1. Checks the host (Proxmox VE, VT-x/AMD-V) and **picks the best virtual CPU the host supports** — it works on any Intel or AMD CPU, with or without AVX2
 2. Configures KVM (`ignore_msrs=1`, persistent)
-3. Downloads the [OpenCore ISO](https://github.com/LongQT-sea/OpenCore-ISO) (boot loader)
+3. Downloads the [OpenCore ISO](https://github.com/LongQT-sea/OpenCore-ISO) (boot loader); on non-AVX2 hosts it automatically injects [CryptexFixup](https://github.com/acidanthera/CryptexFixup) so Tahoe still installs
 4. Downloads the **official macOS Tahoe recovery** from Apple's servers ([macrecovery](https://github.com/acidanthera/OpenCorePkg))
 5. Converts it and creates a fully configured VM (q35, OVMF, VirtIO disk & network)
 
 ## Requirements
 
 - Proxmox VE **7.2 or later**
-- Host CPU with **AVX2** (Intel Haswell+ / AMD Zen+) and virtualization enabled
+- Any 64-bit Intel/AMD host CPU with virtualization enabled and at least **SSE4.2** (AVX2 recommended — without it, macOS runs on its non-AVX2 Rosetta system files and updates need full installers)
 - ~5 GB free on the ISO storage, plus the VM disk (80 GB by default)
 - Internet access on the host **and** in the VM (the installer streams macOS from Apple)
 
@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 | `ISO_STORAGE` | `local`        | Storage for the ISOs      |
 | `BRIDGE`      | `vmbr0`        | Network bridge            |
 | `START`       | `1`            | Start the VM at the end (`0` to disable) |
-| `CPU_MODEL`   | `Haswell-noTSX-IBRS` | Virtual CPU model presented to macOS |
+| `CPU_MODEL`   | auto           | Virtual CPU model presented to macOS (auto-picked from host capabilities) |
 
 ## After the script
 
@@ -57,7 +57,8 @@ Keep the OpenCore ISO (`ide2`) attached — the VM boots through it.
 
 ## Troubleshooting
 
-- **Virtual CPU**: the VM always uses a generic `Haswell-noTSX-IBRS` virtual CPU, so the same configuration works on any Intel or AMD host with AVX2. Advanced users on Intel can try `CPU_MODEL=host` for slightly better performance.
+- **Virtual CPU**: the script auto-selects a generic Intel virtual CPU matching what the host can provide (`Haswell-noTSX-IBRS` with AVX2, `SandyBridge-IBRS` with AVX only, `Nehalem-IBRS` with SSE4.2), so the same command works on any Intel or AMD host. Advanced users can force a model with `CPU_MODEL=...` (e.g. `CPU_MODEL=host`).
+- **Non-AVX2 host**: the VM boots through a rebuilt OpenCore ISO (`*-cryptex.iso`) containing CryptexFixup. macOS delta updates are not available; update via full installers.
 - **Boot loop / instant reset**: verify `cat /sys/module/kvm/parameters/ignore_msrs` returns `Y` (reboot the host after first install if needed).
 - **No mouse/keyboard**: use the noVNC console; USB passthrough can be added afterwards.
 - **Slow display**: normal, the VM has no GPU acceleration. GPU passthrough is possible but out of scope here.

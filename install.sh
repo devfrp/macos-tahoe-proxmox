@@ -18,8 +18,9 @@
 #   ISO_STORAGE  ISO storage            (default: local)
 #   BRIDGE       network bridge         (default: vmbr0)
 #   START        start the VM at the end (default: 1, set 0 to disable)
-#   CPU_MODEL    virtual CPU model      (default: Haswell-noTSX-IBRS,
-#                works on any Intel/AMD host with AVX2)
+#   CPU_MODEL    virtual CPU model      (default: auto — best model the host
+#                supports; on non-AVX2 hosts CryptexFixup is injected into
+#                OpenCore automatically so macOS Tahoe still installs)
 
 set -euo pipefail
 
@@ -61,13 +62,29 @@ command -v pvesh >/dev/null 2>&1 || die "'pvesh' not found. This script must run
 command -v python3 >/dev/null 2>&1 || die "python3 is required."
 
 grep -qE 'vmx|svm' /proc/cpuinfo || die "CPU virtualization (VT-x/AMD-V) not available."
-grep -q avx2 /proc/cpuinfo || die "macOS Tahoe requires a host CPU with AVX2 support."
 
-# Generic virtual CPU, identical on any Intel or AMD host: macOS sees a
-# supported Haswell-class Intel CPU with the AVX2 Tahoe requires.
-CPU_MODEL="${CPU_MODEL:-Haswell-noTSX-IBRS}"
+# Universal virtual CPU: pick the best model the host can actually provide.
+# macOS Tahoe wants AVX2; on hosts without it, CryptexFixup is injected into
+# the OpenCore ISO so macOS installs its non-AVX2 (Rosetta) system files.
+CPU_FLAGS="$(grep -m1 '^flags' /proc/cpuinfo)"
+NEED_CRYPTEX=0
+if [[ -n "${CPU_MODEL:-}" ]]; then
+    grep -qw avx2 <<<"$CPU_FLAGS" || NEED_CRYPTEX=1
+elif grep -qw avx2 <<<"$CPU_FLAGS"; then
+    CPU_MODEL="Haswell-noTSX-IBRS"
+elif grep -qw avx <<<"$CPU_FLAGS"; then
+    CPU_MODEL="SandyBridge-IBRS"; NEED_CRYPTEX=1
+elif grep -qw sse4_2 <<<"$CPU_FLAGS"; then
+    CPU_MODEL="Nehalem-IBRS"; NEED_CRYPTEX=1
+else
+    die "Host CPU too old: macOS needs at least SSE4.2."
+fi
 CPU_ARGS="-cpu ${CPU_MODEL},vendor=GenuineIntel,+invtsc,+hypervisor,kvm=on,vmware-cpuid-freq=on"
-ok "Host CPU OK (AVX2 present) — virtual CPU: ${CPU_MODEL}"
+if [[ $NEED_CRYPTEX -eq 1 ]]; then
+    warn "Host CPU has no AVX2 — CryptexFixup will be added to OpenCore"
+    warn "(macOS updates will require full installers instead of small deltas)"
+fi
+ok "Virtual CPU: ${CPU_MODEL}"
 
 VMID="${VMID:-$(pvesh get /cluster/nextid)}"
 if qm status "$VMID" >/dev/null 2>&1; then
@@ -86,9 +103,15 @@ if [[ -w /sys/module/kvm/parameters/ignore_msrs ]]; then
 fi
 ok "KVM configured"
 
-if ! command -v dmg2img >/dev/null 2>&1; then
-    info "Installing dmg2img..."
-    apt-get update -qq </dev/null && apt-get install -y -qq dmg2img >/dev/null </dev/null
+PKGS=()
+command -v dmg2img >/dev/null 2>&1 || PKGS+=(dmg2img)
+if [[ $NEED_CRYPTEX -eq 1 ]]; then
+    command -v xorriso >/dev/null 2>&1 || PKGS+=(xorriso)
+    command -v mcopy   >/dev/null 2>&1 || PKGS+=(mtools)
+fi
+if [[ ${#PKGS[@]} -gt 0 ]]; then
+    info "Installing ${PKGS[*]}..."
+    apt-get update -qq </dev/null && apt-get install -y -qq "${PKGS[@]}" >/dev/null </dev/null
 fi
 
 mkdir -p "$WORK_DIR" "$ISO_DIR"
@@ -102,6 +125,71 @@ else
     curl -fSL --progress-bar -o "$ISO_DIR/$OPENCORE_ISO.tmp" "$OPENCORE_URL"
     mv "$ISO_DIR/$OPENCORE_ISO.tmp" "$ISO_DIR/$OPENCORE_ISO"
     ok "OpenCore ISO downloaded"
+fi
+
+# On non-AVX2 hosts, rebuild the OpenCore ISO with CryptexFixup injected into
+# its El Torito FAT boot image (EFI/OC/Kexts + config.plist entry).
+if [[ $NEED_CRYPTEX -eq 1 ]]; then
+    CRYPTEX_ISO="${OPENCORE_ISO%.iso}-cryptex.iso"
+    if [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]]; then
+        ok "CryptexFixup OpenCore ISO already present"
+    else
+        info "Injecting CryptexFixup into the OpenCore ISO..."
+        CTMP="$WORK_DIR/cryptex-build"
+        rm -rf "$CTMP" && mkdir -p "$CTMP"
+
+        CRYPTEX_ZIP_URL="$(curl -fsSL https://api.github.com/repos/acidanthera/CryptexFixup/releases/latest \
+            | python3 -c "import json,sys; print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if 'RELEASE' in a['name']][0])")"
+        curl -fsSL -o "$CTMP/cryptex.zip" "$CRYPTEX_ZIP_URL"
+        python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+            "$CTMP/cryptex.zip" "$CTMP"
+        [[ -d "$CTMP/CryptexFixup.kext" ]] || die "CryptexFixup.kext not found in release archive."
+
+        xorriso -osirrox on -indev "$ISO_DIR/$OPENCORE_ISO" \
+            -extract /BOOT.img "$CTMP/BOOT.img" >/dev/null 2>&1
+        chmod +w "$CTMP/BOOT.img"
+
+        mcopy -i "$CTMP/BOOT.img" ::/EFI/OC/config.plist "$CTMP/config.plist"
+        python3 - "$CTMP/config.plist" <<'PYEOF'
+import plistlib, sys
+p = sys.argv[1]
+with open(p, 'rb') as f:
+    cfg = plistlib.load(f)
+kexts = cfg['Kernel']['Add']
+if not any(k.get('BundlePath') == 'CryptexFixup.kext' for k in kexts):
+    kexts.append({
+        'Arch': 'x86_64',
+        'BundlePath': 'CryptexFixup.kext',
+        'Comment': 'Rosetta cryptex on non-AVX2 CPUs',
+        'Enabled': True,
+        'ExecutablePath': 'Contents/MacOS/CryptexFixup',
+        'MaxKernel': '',
+        'MinKernel': '22.0.0',
+        'PlistPath': 'Contents/Info.plist',
+    })
+with open(p, 'wb') as f:
+    plistlib.dump(cfg, f)
+PYEOF
+
+        (
+            cd "$CTMP/CryptexFixup.kext"
+            mmd -i "$CTMP/BOOT.img" "::/EFI/OC/Kexts/CryptexFixup.kext" 2>/dev/null || true
+            find . -type d | sed 's|^\./||;/^\.$/d' | sort | while read -r d; do
+                mmd -i "$CTMP/BOOT.img" "::/EFI/OC/Kexts/CryptexFixup.kext/$d" 2>/dev/null || true
+            done
+            find . -type f | sed 's|^\./||' | while read -r f; do
+                mcopy -i "$CTMP/BOOT.img" "$f" "::/EFI/OC/Kexts/CryptexFixup.kext/$f"
+            done
+        )
+        mcopy -i "$CTMP/BOOT.img" -o "$CTMP/config.plist" ::/EFI/OC/config.plist
+
+        xorriso -indev "$ISO_DIR/$OPENCORE_ISO" -outdev "$ISO_DIR/$CRYPTEX_ISO" \
+            -map "$CTMP/BOOT.img" /BOOT.img -boot_image any replay >/dev/null 2>&1
+        [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]] || die "Failed to rebuild the OpenCore ISO."
+        rm -rf "$CTMP"
+        ok "CryptexFixup OpenCore ISO ready"
+    fi
+    OPENCORE_ISO="$CRYPTEX_ISO"
 fi
 
 # ------------------------------------------------------------- Tahoe recovery image
@@ -160,6 +248,10 @@ echo
 echo "  VM id      : $VMID"
 echo "  Name       : $VM_NAME"
 echo "  CPU        : $CORES cores (virtual: $CPU_MODEL)"
+if [[ $NEED_CRYPTEX -eq 1 ]]; then
+    echo "  Note       : non-AVX2 host — OpenCore includes CryptexFixup;"
+    echo "               macOS updates require full installers (no deltas)"
+fi
 echo "  RAM        : $RAM MiB"
 echo "  Disk       : ${DISK}G on $STORAGE"
 echo
