@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS Tahoe on Proxmox — one-command installer</title>
+<meta name="description" content="Create a macOS Tahoe (macOS 26) VM on Proxmox VE with a single curl command.">
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #9198a1; --accent: #58a6ff; --green: #3fb950;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fa; --panel: #ffffff; --border: #d0d7de;
+      --text: #1f2328; --muted: #59636e; --accent: #0969da; --green: #1a7f37;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; min-height: 100vh; justify-content: center; padding: 3rem 1.25rem;
+  }
+  main { max-width: 46rem; width: 100%; }
+  .lang { text-align: right; margin-bottom: 1rem; }
+  .lang button {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); padding: .25rem .7rem; cursor: pointer; font-size: .85rem;
+  }
+  .lang button.active { color: var(--text); border-color: var(--accent); }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin-bottom: .5rem; }
+  .sub { color: var(--muted); margin-bottom: 2rem; }
+  .cmd {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem 1.1rem; display: flex; align-items: center; gap: .75rem;
+    margin-bottom: .6rem; overflow-x: auto;
+  }
+  .cmd code {
+    font: .86rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: nowrap; flex: 1;
+  }
+  .cmd .dollar { color: var(--green); user-select: none; }
+  .copy {
+    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: .4rem .8rem; cursor: pointer; font-size: .82rem; flex-shrink: 0;
+  }
+  .hint { color: var(--muted); font-size: .85rem; margin-bottom: 2.2rem; }
+  h2 { font-size: 1.1rem; margin: 1.8rem 0 .6rem; }
+  ol { padding-left: 1.3rem; }
+  li { margin-bottom: .35rem; }
+  li code, p code {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: .08rem .35rem; font-size: .84em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .85rem;
+    border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="lang">
+    <button id="btn-en" class="active" onclick="setLang('en')">EN</button>
+    <button id="btn-fr" onclick="setLang('fr')">FR</button>
+  </div>
+
+  <section id="en">
+    <h1>macOS Tahoe on Proxmox VE</h1>
+    <p class="sub">A ready-to-install macOS 26 virtual machine, created with a single command.</p>
+    <div class="cmd">
+      <span class="dollar">$</span>
+      <code id="cmd-en">curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash</code>
+      <button class="copy" onclick="copyCmd('cmd-en', this)">Copy</button>
+    </div>
+    <p class="hint">Run as root on the Proxmox host. Requires a CPU with AVX2.</p>
+    <h2>What it does</h2>
+    <ol>
+      <li>Checks the host (Proxmox VE, virtualization, AVX2)</li>
+      <li>Downloads the OpenCore boot loader ISO</li>
+      <li>Fetches the official macOS Tahoe recovery from Apple's servers</li>
+      <li>Creates a fully configured VM (q35, OVMF, VirtIO)</li>
+    </ol>
+    <h2>Then</h2>
+    <p>Start the VM, erase the VirtIO disk in Disk Utility (APFS) and install macOS Tahoe. Full guide in the <a href="https://github.com/devfrp/macos-tahoe-proxmox#readme">README</a>.</p>
+  </section>
+
+  <section id="fr" hidden>
+    <h1>macOS Tahoe sur Proxmox VE</h1>
+    <p class="sub">Une machine virtuelle macOS 26 prête à installer, créée en une seule commande.</p>
+    <div class="cmd">
+      <span class="dollar">$</span>
+      <code id="cmd-fr">curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash</code>
+      <button class="copy" onclick="copyCmd('cmd-fr', this)">Copier</button>
+    </div>
+    <p class="hint">À lancer en root sur l'hôte Proxmox. Nécessite un CPU avec AVX2.</p>
+    <h2>Ce que ça fait</h2>
+    <ol>
+      <li>Vérifie l'hôte (Proxmox VE, virtualisation, AVX2)</li>
+      <li>Télécharge l'ISO du chargeur OpenCore</li>
+      <li>Récupère la recovery officielle macOS Tahoe depuis les serveurs Apple</li>
+      <li>Crée une VM entièrement configurée (q35, OVMF, VirtIO)</li>
+    </ol>
+    <h2>Ensuite</h2>
+    <p>Démarrer la VM, effacer le disque VirtIO dans Utilitaire de disque (APFS) et installer macOS Tahoe. Guide complet dans le <a href="https://github.com/devfrp/macos-tahoe-proxmox/blob/main/README.fr.md">README</a>.</p>
+  </section>
+
+  <footer>
+    <span id="foot-en">macOS is licensed by Apple for Apple hardware. For testing and development use.
+      Source on <a href="https://github.com/devfrp/macos-tahoe-proxmox">GitHub</a>.</span>
+    <span id="foot-fr" hidden>macOS est sous licence Apple pour du matériel Apple. Pour un usage de test et développement.
+      Source sur <a href="https://github.com/devfrp/macos-tahoe-proxmox">GitHub</a>.</span>
+  </footer>
+</main>
+<script>
+function setLang(l) {
+  document.getElementById('en').hidden = l !== 'en';
+  document.getElementById('fr').hidden = l !== 'fr';
+  document.getElementById('foot-en').hidden = l !== 'en';
+  document.getElementById('foot-fr').hidden = l !== 'fr';
+  document.getElementById('btn-en').classList.toggle('active', l === 'en');
+  document.getElementById('btn-fr').classList.toggle('active', l === 'fr');
+  document.documentElement.lang = l;
+  try { localStorage.setItem('lang', l); } catch (e) {}
+}
+try {
+  var saved = localStorage.getItem('lang');
+  if (saved) setLang(saved);
+  else if (navigator.language && navigator.language.startsWith('fr')) setLang('fr');
+} catch (e) {}
+function copyCmd(id, btn) {
+  navigator.clipboard.writeText(document.getElementById(id).textContent).then(function () {
+    var old = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(function () { btn.textContent = old; }, 1200);
+  });
+}
+</script>
+</body>
+</html>
