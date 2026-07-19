@@ -51,7 +51,76 @@ ok()    { echo -e "${c_green}[+]${c_reset} $*"; }
 warn()  { echo -e "${c_yellow}[!]${c_reset} $*"; }
 die()   { echo -e "${c_red}[x]${c_reset} $*" >&2; exit 1; }
 
+# --------------------------------------------------------------------- finalize
+# After macOS is installed: copy OpenCore to the VM's own EFI partition,
+# detach the installer media and boot straight from disk.
+#   curl -fsSL .../install.sh | bash -s -- finalize <VMID>
+finalize_vm() {
+    local vmid="$1"
+    [[ -n "$vmid" ]] || die "Usage: ... | bash -s -- finalize <VMID>"
+    [[ $EUID -eq 0 ]] || die "This script must be run as root on the Proxmox host."
+    command -v qm >/dev/null 2>&1 || die "'qm' not found. This must run on a Proxmox VE host."
+    qm status "$vmid" >/dev/null 2>&1 || die "VM $vmid not found."
+
+    local iso_vol iso_file disk_vol disk_dev
+    iso_vol="$(qm config "$vmid" | sed -n 's/^ide2: \([^,]*\).*/\1/p')"
+    [[ -n "$iso_vol" ]] || die "No OpenCore ISO (ide2) attached to VM $vmid — nothing to finalize."
+    iso_file="$(pvesm path "$iso_vol")"
+    disk_vol="$(qm config "$vmid" | sed -n 's/^virtio0: \([^,]*\).*/\1/p')"
+    [[ -n "$disk_vol" ]] || die "No virtio0 disk on VM $vmid."
+    disk_dev="$(pvesm path "$disk_vol")"
+    [[ -e "$disk_dev" ]] || die "Disk of VM $vmid has no local path — finalize manually (see README)."
+
+    local pkgs=()
+    command -v kpartx  >/dev/null 2>&1 || pkgs+=(kpartx)
+    command -v mcopy   >/dev/null 2>&1 || pkgs+=(mtools)
+    command -v xorriso >/dev/null 2>&1 || pkgs+=(xorriso)
+    if [[ ${#pkgs[@]} -gt 0 ]]; then
+        info "Installing ${pkgs[*]}..."
+        apt-get update -qq </dev/null && apt-get install -y -qq "${pkgs[@]}" >/dev/null </dev/null
+    fi
+
+    if qm status "$vmid" | grep -q running; then
+        info "Shutting down VM $vmid..."
+        qm shutdown "$vmid" --timeout 120 || qm stop "$vmid"
+    fi
+
+    local tmp; tmp="$(mktemp -d)"
+    xorriso -osirrox on -indev "$iso_file" -extract /BOOT.img "$tmp/BOOT.img" >/dev/null 2>&1 || true
+    [[ -f "$tmp/BOOT.img" ]] || die "Failed to extract BOOT.img from $iso_file."
+    chmod +w "$tmp/BOOT.img"
+    mcopy -si "$tmp/BOOT.img" ::/EFI "$tmp/" >/dev/null 2>&1
+    [[ -d "$tmp/EFI" ]] || die "Failed to read the OpenCore EFI folder."
+
+    info "Copying OpenCore to the EFI partition of VM $vmid..."
+    local mapname esp
+    mapname="$(kpartx -av "$disk_dev" | awk 'NR==1 {print $3}')"
+    [[ -n "$mapname" ]] || die "No partitions found on the VM disk — install macOS first."
+    esp="/dev/mapper/$mapname"
+    mkdir -p "$tmp/esp"
+    if ! mount -t vfat "$esp" "$tmp/esp" 2>/dev/null; then
+        kpartx -d "$disk_dev" >/dev/null 2>&1 || true
+        die "EFI partition not mountable — erase the disk in Disk Utility and install macOS first."
+    fi
+    cp -r "$tmp/EFI" "$tmp/esp/"
+    sync
+    umount "$tmp/esp"
+    kpartx -d "$disk_dev" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+
+    qm set "$vmid" --delete ide2 2>/dev/null || true
+    qm set "$vmid" --delete sata0 2>/dev/null || true
+    qm set "$vmid" --boot order=virtio0
+    qm start "$vmid"
+    ok "VM $vmid is now standalone: it boots OpenCore from its own disk."
+    exit 0
+}
+
 main() {
+
+if [[ "${1:-}" == "finalize" ]]; then
+    finalize_vm "${2:-}"
+fi
 
 # ----------------------------------------------------------------------- checks
 info "Checking environment..."

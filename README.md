@@ -55,21 +55,24 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 
 Keep the OpenCore ISO (`ide2`) attached — the VM boots through it.
 
-## Make the VM standalone (optional but recommended)
+## Make the VM standalone (one command)
 
-Once on the macOS desktop, copy OpenCore to the VM's own EFI partition so the VM no longer needs the ISO. In the macOS **Terminal**:
+Once macOS is installed, run this **on the Proxmox host** — it copies OpenCore to the VM's own EFI partition, detaches the installer media and reboots the VM from its disk:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash -s -- finalize <VMID>
+```
+
+<details>
+<summary>Manual alternative (from inside macOS)</summary>
 
 ```bash
 sudo diskutil mount disk0s1
 cp -R /Volumes/LongQT-OpenCore/EFI_RELEASE/EFI /Volumes/EFI/
 ```
 
-Then on the Proxmox host:
-
-```bash
-qm set <VMID> --delete ide2 --delete sata0
-qm set <VMID> --boot order=virtio0
-```
+Then on the host: `qm set <VMID> --delete ide2 --delete sata0 && qm set <VMID> --boot order=virtio0`
+</details>
 
 ## iCloud / iMessage (optional)
 
