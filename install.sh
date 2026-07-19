@@ -22,7 +22,8 @@
 #                supports; on non-AVX2 hosts CryptexFixup is injected into
 #                OpenCore automatically so macOS Tahoe still installs)
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo -e "\033[1;31m[x]\033[0m Command failed (line $LINENO): $BASH_COMMAND" >&2' ERR
 
 # ---------------------------------------------------------------- configuration
 VM_NAME="${VM_NAME:-macos-tahoe}"
