@@ -87,7 +87,7 @@ Use a serial that Apple's coverage page reports as **invalid**, and note that si
 ## Troubleshooting
 
 - **Virtual CPU**: the script auto-selects a generic Intel virtual CPU matching what the host can provide (`Haswell-noTSX-IBRS` with AVX2, `SandyBridge-IBRS` with AVX only, `Nehalem-IBRS` with SSE4.2), so the same command works on any Intel or AMD host. Advanced users can force a model with `CPU_MODEL=...` (e.g. `CPU_MODEL=host`).
-- **Non-AVX2 host**: the VM boots through a rebuilt OpenCore ISO (`*-cryptex.iso`) containing CryptexFixup. macOS delta updates are not available; update via full installers.
+- **Non-AVX2 host**: the VM boots through a small OpenCore boot disk (`sata1`) carrying CryptexFixup — no ISO rebuild involved. The `finalize` step folds it into the VM's own EFI partition. macOS delta updates are not available; update via full installers.
 - **Boot loop / instant reset**: verify `cat /sys/module/kvm/parameters/ignore_msrs` returns `Y` (reboot the host after first install if needed).
 - **No mouse/keyboard**: use the noVNC console; USB passthrough can be added afterwards.
 - **Slow display**: normal, the VM has no GPU acceleration. GPU passthrough is possible but out of scope here.

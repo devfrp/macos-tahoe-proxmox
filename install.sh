@@ -62,10 +62,11 @@ finalize_vm() {
     command -v qm >/dev/null 2>&1 || die "'qm' not found. This must run on a Proxmox VE host."
     qm status "$vmid" >/dev/null 2>&1 || die "VM $vmid not found."
 
-    local iso_vol iso_file disk_vol disk_dev
+    local iso_vol iso_file oc_vol disk_vol disk_dev
     iso_vol="$(qm config "$vmid" | sed -n 's/^ide2: \([^,]*\).*/\1/p')"
-    [[ -n "$iso_vol" ]] || die "No OpenCore ISO (ide2) attached to VM $vmid — nothing to finalize."
-    iso_file="$(pvesm path "$iso_vol")"
+    oc_vol="$(qm config "$vmid" | sed -n 's/^sata1: \([^,]*\).*/\1/p')"
+    [[ -n "$iso_vol" || -n "$oc_vol" ]] || die "No OpenCore media (ide2/sata1) on VM $vmid — nothing to finalize."
+    [[ -z "$iso_vol" ]] || iso_file="$(pvesm path "$iso_vol")"
     disk_vol="$(qm config "$vmid" | sed -n 's/^virtio0: \([^,]*\).*/\1/p')"
     [[ -n "$disk_vol" ]] || die "No virtio0 disk on VM $vmid."
     disk_dev="$(pvesm path "$disk_vol")"
@@ -86,10 +87,20 @@ finalize_vm() {
     fi
 
     local tmp; tmp="$(mktemp -d)"
-    xorriso -osirrox on -indev "$iso_file" -extract /BOOT.img "$tmp/BOOT.img" >/dev/null 2>&1 || true
-    [[ -f "$tmp/BOOT.img" ]] || die "Failed to extract BOOT.img from $iso_file."
-    chmod +w "$tmp/BOOT.img"
-    mcopy -si "$tmp/BOOT.img" ::/EFI "$tmp/" >/dev/null 2>&1
+    if [[ -n "$iso_vol" ]]; then
+        xorriso -osirrox on -indev "$iso_file" -extract /BOOT.img "$tmp/BOOT.img" >/dev/null 2>&1 || true
+        [[ -f "$tmp/BOOT.img" ]] || die "Failed to extract BOOT.img from $iso_file."
+        chmod +w "$tmp/BOOT.img"
+        mcopy -si "$tmp/BOOT.img" ::/EFI "$tmp/" >/dev/null 2>&1
+    else
+        # OpenCore lives on a small FAT boot disk (non-AVX2 setups)
+        local oc_dev; oc_dev="$(pvesm path "$oc_vol")"
+        [[ -e "$oc_dev" ]] || die "OpenCore boot disk has no local path."
+        mkdir -p "$tmp/ocsrc"
+        mount -t vfat -o ro "$oc_dev" "$tmp/ocsrc" || die "Cannot mount the OpenCore boot disk."
+        cp -r "$tmp/ocsrc/EFI" "$tmp/EFI"
+        umount "$tmp/ocsrc"
+    fi
     [[ -d "$tmp/EFI" ]] || die "Failed to read the OpenCore EFI folder."
 
     info "Copying OpenCore to the EFI partition of VM $vmid..."
@@ -110,6 +121,7 @@ finalize_vm() {
 
     qm set "$vmid" --delete ide2 2>/dev/null || true
     qm set "$vmid" --delete sata0 2>/dev/null || true
+    qm set "$vmid" --delete sata1 2>/dev/null || true
     qm set "$vmid" --boot order=virtio0
     qm start "$vmid"
     ok "VM $vmid is now standalone: it boots OpenCore from its own disk."
@@ -215,31 +227,16 @@ else
     ok "OpenCore ISO downloaded"
 fi
 
-# On non-AVX2 hosts, rebuild the OpenCore ISO with CryptexFixup injected into
-# its El Torito FAT boot image (EFI/OC/Kexts + config.plist entry).
-# Bootable = the whole El Torito boot image can be extracted and looks sane;
-# a truncated ISO keeps its catalog, so listing it is not enough.
-iso_bootable() {
-    local d ok=1
-    d="$(mktemp -d)"
-    if xorriso -osirrox on -indev "$1" -extract /BOOT.img "$d/b.img" >/dev/null 2>&1 \
-        && [[ "$(stat -c%s "$d/b.img" 2>/dev/null || echo 0)" -ge 4000000 ]]; then
-        ok=0
-    fi
-    rm -rf "$d"
-    return "$ok"
-}
-
+# On non-AVX2 hosts OpenCore must carry CryptexFixup. Rebuilt ISOs are not
+# reliably bootable across xorriso versions, so the patched FAT boot image is
+# instead attached later as a small UEFI boot disk (OVMF boots it natively).
+OC_BOOT_IMG="$WORK_DIR/opencore-cryptex-boot.img"
 if [[ $NEED_CRYPTEX -eq 1 ]]; then
-    CRYPTEX_ISO="${OPENCORE_ISO%.iso}-cryptex.iso"
-    if [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]] && iso_bootable "$ISO_DIR/$CRYPTEX_ISO"; then
-        ok "CryptexFixup OpenCore ISO already present"
+    if [[ -f "$OC_BOOT_IMG" ]] && mdir -i "$OC_BOOT_IMG" ::/EFI/OC/Kexts/CryptexFixup.kext >/dev/null 2>&1; then
+        ok "CryptexFixup OpenCore boot image already present"
     else
-        if [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]]; then
-            warn "Cached CryptexFixup ISO is not bootable — rebuilding it"
-            rm -f "$ISO_DIR/$CRYPTEX_ISO"
-        fi
-        info "Injecting CryptexFixup into the OpenCore ISO..."
+        rm -f "$OC_BOOT_IMG"
+        info "Building the CryptexFixup OpenCore boot image..."
         CTMP="$WORK_DIR/cryptex-build"
         rm -rf "$CTMP" && mkdir -p "$CTMP"
 
@@ -292,14 +289,12 @@ PYEOF
         )
         mcopy -i "$CTMP/BOOT.img" -o "$CTMP/config.plist" ::/EFI/OC/config.plist
 
-        xorriso -indev "$ISO_DIR/$OPENCORE_ISO" -outdev "$ISO_DIR/$CRYPTEX_ISO" \
-            -map "$CTMP/BOOT.img" /BOOT.img -boot_image any replay >/dev/null 2>&1 || true
-        [[ -s "$ISO_DIR/$CRYPTEX_ISO" ]] || die "Failed to rebuild the OpenCore ISO."
-        iso_bootable "$ISO_DIR/$CRYPTEX_ISO" || die "Rebuilt OpenCore ISO is not bootable."
+        mdir -i "$CTMP/BOOT.img" ::/EFI/OC/Kexts/CryptexFixup.kext >/dev/null 2>&1 \
+            || die "CryptexFixup injection failed."
+        mv "$CTMP/BOOT.img" "$OC_BOOT_IMG"
         rm -rf "$CTMP"
-        ok "CryptexFixup OpenCore ISO ready"
+        ok "CryptexFixup OpenCore boot image ready"
     fi
-    OPENCORE_ISO="$CRYPTEX_ISO"
 fi
 
 # ------------------------------------------------------------- Tahoe recovery image
@@ -338,27 +333,52 @@ qm create "$VMID" \
 # Light configuration first, heavy disk imports last: if a slow storage
 # stalls an import, the VM is still fully configured and easy to finish.
 qm set "$VMID" --args "-device isa-applesmc,osk=\"$OSK\" -smbios type=2 -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -global nec-usb-xhci.msi=off -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off $CPU_ARGS"
-qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
-qm set "$VMID" --boot order=ide2
+if [[ $NEED_CRYPTEX -eq 0 ]]; then
+    qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
+    qm set "$VMID" --boot order=ide2
+fi
 qm set "$VMID" --efidisk0 "$STORAGE:1,efitype=4m,pre-enrolled-keys=0"
 qm set "$VMID" --virtio0 "$STORAGE:$DISK,cache=unsafe,discard=on"
+
 # dd instead of import-from: qemu-img's zeroinit filter can hang forever on
 # LVM-thin storage (D-state), while plain sequential writes go through fine.
+# Prints the created volume id; fails when the storage has no local path.
+import_raw() {
+    local file="$1" size extents kib vol dev
+    size="$(stat -c%s "$file")"
+    extents=$(( (size + 4194303) / 4194304 ))   # 4 MiB LVM extents
+    kib=$(( extents * 4096 ))
+    vol="$(pvesm alloc "$STORAGE" "$VMID" '' "$kib" --format raw 2>/dev/null \
+        | grep -o "'[^']*'" | tr -d "'" | tail -n1)"
+    [[ -n "$vol" ]] || return 1
+    dev="$(pvesm path "$vol" 2>/dev/null || true)"
+    if [[ -z "$dev" || ! -e "$dev" ]]; then
+        pvesm free "$vol" >/dev/null 2>&1 || true
+        return 1
+    fi
+    dd if="$file" of="$dev" bs=4M conv=fsync status=progress </dev/null
+    echo "$vol"
+}
+
 info "Importing the recovery disk (can take a while on slow storage)..."
-SIZE_BYTES="$(stat -c%s "$RECOVERY_IMG")"
-SIZE_EXTENTS=$(( (SIZE_BYTES + 4194303) / 4194304 ))   # 4 MiB LVM extents
-SIZE_KIB=$(( SIZE_EXTENTS * 4096 ))
-RECOVERY_VOL="$(pvesm alloc "$STORAGE" "$VMID" '' "$SIZE_KIB" --format raw | grep -o "'[^']*'" | tr -d "'" | tail -n1)"
-[[ -n "$RECOVERY_VOL" ]] || die "Failed to allocate the recovery volume."
-RECOVERY_DEV="$(pvesm path "$RECOVERY_VOL" 2>/dev/null || true)"
-if [[ -n "$RECOVERY_DEV" && -e "$RECOVERY_DEV" ]]; then
-    dd if="$RECOVERY_IMG" of="$RECOVERY_DEV" bs=4M conv=fsync status=progress </dev/null
+RECOVERY_VOL="$(import_raw "$RECOVERY_IMG" || true)"
+if [[ -n "$RECOVERY_VOL" ]]; then
     qm set "$VMID" --sata0 "$RECOVERY_VOL"
 else
     # Storage without a writable local path (e.g. RBD): use qemu-img import
-    pvesm free "$RECOVERY_VOL" >/dev/null 2>&1 || true
     warn "Storage has no direct path — falling back to qemu-img import"
     qm set "$VMID" --sata0 "$STORAGE:0,import-from=$RECOVERY_IMG"
+fi
+
+if [[ $NEED_CRYPTEX -eq 1 ]]; then
+    info "Attaching the OpenCore boot disk..."
+    OC_VOL="$(import_raw "$OC_BOOT_IMG" || true)"
+    if [[ -n "$OC_VOL" ]]; then
+        qm set "$VMID" --sata1 "$OC_VOL"
+    else
+        qm set "$VMID" --sata1 "$STORAGE:0,import-from=$OC_BOOT_IMG"
+    fi
+    qm set "$VMID" --boot order=sata1
 fi
 
 ok "VM $VMID created"
@@ -395,10 +415,14 @@ echo "  2. Open the console in the Proxmox web UI"
 echo "  3. In OpenCore, boot 'macOS Base System'"
 echo "  4. Disk Utility -> erase the ${DISK}G VirtIO disk (APFS, GUID)"
 echo "  5. Install macOS Tahoe (downloads from Apple, ~30-60 min)"
-echo "  6. After install, detach the recovery disk:"
-echo "       qm set $VMID --delete sata0"
+echo "  6. Once on the macOS desktop, make the VM standalone:"
+echo "       curl -fsSL <this script's URL> | bash -s -- finalize $VMID"
 echo
-echo "  Keep the OpenCore ISO attached: the VM boots through it."
+if [[ $NEED_CRYPTEX -eq 1 ]]; then
+    echo "  Until then, keep the OpenCore boot disk (sata1): the VM boots through it."
+else
+    echo "  Until then, keep the OpenCore ISO attached: the VM boots through it."
+fi
 echo "  Remove everything:            qm destroy $VMID"
 echo
 

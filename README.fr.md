@@ -87,7 +87,7 @@ Utiliser un numéro de série que la page de garantie Apple déclare **invalide*
 ## Dépannage
 
 - **CPU virtuel** : le script choisit automatiquement un CPU virtuel Intel générique selon ce que l'hôte peut fournir (`Haswell-noTSX-IBRS` avec AVX2, `SandyBridge-IBRS` avec AVX seul, `Nehalem-IBRS` avec SSE4.2), donc la même commande fonctionne sur n'importe quel hôte Intel ou AMD. Les utilisateurs avancés peuvent forcer un modèle avec `CPU_MODEL=...` (ex. `CPU_MODEL=host`).
-- **Hôte sans AVX2** : la VM démarre via une ISO OpenCore reconstruite (`*-cryptex.iso`) contenant CryptexFixup. Les mises à jour delta de macOS ne sont pas disponibles ; mettre à jour via les installeurs complets.
+- **Hôte sans AVX2** : la VM démarre via un petit disque de boot OpenCore (`sata1`) portant CryptexFixup — aucune reconstruction d'ISO. L'étape `finalize` le rapatrie ensuite sur la partition EFI de la VM. Les mises à jour delta de macOS ne sont pas disponibles ; mettre à jour via les installeurs complets.
 - **Boot en boucle / reset immédiat** : vérifier que `cat /sys/module/kvm/parameters/ignore_msrs` renvoie `Y` (redémarrer l'hôte après la première installation si besoin).
 - **Pas de souris/clavier** : utiliser la console noVNC ; un passthrough USB peut être ajouté ensuite.
 - **Affichage lent** : normal, la VM n'a pas d'accélération GPU. Le passthrough GPU est possible mais hors périmètre ici.
