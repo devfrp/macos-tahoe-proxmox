@@ -115,6 +115,13 @@ if [[ -w /sys/module/kvm/parameters/ignore_msrs ]]; then
 fi
 ok "KVM configured"
 
+CLOCKSOURCE="$(cat /sys/devices/system/clocksource/clocksource0/current_clocksource 2>/dev/null || echo unknown)"
+if [[ "$CLOCKSOURCE" != "tsc" ]]; then
+    warn "Host clocksource is '$CLOCKSOURCE' (not TSC): macOS may freeze with several cores."
+    warn "Fix: add 'tsc=reliable' to GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub,"
+    warn "then run 'update-grub' and reboot the host."
+fi
+
 PKGS=()
 command -v dmg2img >/dev/null 2>&1 || PKGS+=(dmg2img)
 if [[ $NEED_CRYPTEX -eq 1 ]]; then
@@ -235,14 +242,15 @@ qm create "$VMID" \
     --cpu Haswell \
     --memory "$RAM" \
     --balloon 0 \
-    --vga vmware \
+    --vga vmware,memory=256 \
+    --scsihw virtio-scsi-pci \
     --net0 "virtio,bridge=$BRIDGE" \
     --agent enabled=1 \
-    --tablet 1
+    --tablet 0
 
 # Light configuration first, heavy disk imports last: if a slow storage
 # stalls an import, the VM is still fully configured and easy to finish.
-qm set "$VMID" --args "-device isa-applesmc,osk=\"$OSK\" -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -global nec-usb-xhci.msi=off -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off $CPU_ARGS"
+qm set "$VMID" --args "-device isa-applesmc,osk=\"$OSK\" -smbios type=2 -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -global nec-usb-xhci.msi=off -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off $CPU_ARGS"
 qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
 qm set "$VMID" --boot order=ide2
 qm set "$VMID" --efidisk0 "$STORAGE:1,efitype=4m,pre-enrolled-keys=0"

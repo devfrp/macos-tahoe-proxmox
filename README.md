@@ -55,6 +55,32 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 
 Keep the OpenCore ISO (`ide2`) attached — the VM boots through it.
 
+## Make the VM standalone (optional but recommended)
+
+Once on the macOS desktop, copy OpenCore to the VM's own EFI partition so the VM no longer needs the ISO. In the macOS **Terminal**:
+
+```bash
+sudo diskutil mount disk0s1
+cp -R /Volumes/LongQT-OpenCore/EFI_RELEASE/EFI /Volumes/EFI/
+```
+
+Then on the Proxmox host:
+
+```bash
+qm set <VMID> --delete ide2 --delete sata0
+qm set <VMID> --boot order=virtio0
+```
+
+## iCloud / iMessage (optional)
+
+Apple services need a unique serial number and a hidden hypervisor:
+
+1. Generate a serial with [GenSMBIOS](https://github.com/corpnewt/GenSMBIOS) (model `iMacPro1,1`) into `/Volumes/EFI/EFI/OC/config.plist`
+2. Add [VMHide](https://github.com/Carnations-Botanica/VMHide) to `EFI/OC/Kexts` and to `config.plist`, with `vmhState=enabled` in boot-args
+3. Reboot the VM before signing in
+
+Use a serial that Apple's coverage page reports as **invalid**, and note that signing in to Apple services from a VM may violate Apple's terms.
+
 ## Troubleshooting
 
 - **Virtual CPU**: the script auto-selects a generic Intel virtual CPU matching what the host can provide (`Haswell-noTSX-IBRS` with AVX2, `SandyBridge-IBRS` with AVX only, `Nehalem-IBRS` with SSE4.2), so the same command works on any Intel or AMD host. Advanced users can force a model with `CPU_MODEL=...` (e.g. `CPU_MODEL=host`).
