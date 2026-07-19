@@ -217,11 +217,28 @@ fi
 
 # On non-AVX2 hosts, rebuild the OpenCore ISO with CryptexFixup injected into
 # its El Torito FAT boot image (EFI/OC/Kexts + config.plist entry).
+# Bootable = the whole El Torito boot image can be extracted and looks sane;
+# a truncated ISO keeps its catalog, so listing it is not enough.
+iso_bootable() {
+    local d ok=1
+    d="$(mktemp -d)"
+    if xorriso -osirrox on -indev "$1" -extract /BOOT.img "$d/b.img" >/dev/null 2>&1 \
+        && [[ "$(stat -c%s "$d/b.img" 2>/dev/null || echo 0)" -ge 4000000 ]]; then
+        ok=0
+    fi
+    rm -rf "$d"
+    return "$ok"
+}
+
 if [[ $NEED_CRYPTEX -eq 1 ]]; then
     CRYPTEX_ISO="${OPENCORE_ISO%.iso}-cryptex.iso"
-    if [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]]; then
+    if [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]] && iso_bootable "$ISO_DIR/$CRYPTEX_ISO"; then
         ok "CryptexFixup OpenCore ISO already present"
     else
+        if [[ -f "$ISO_DIR/$CRYPTEX_ISO" ]]; then
+            warn "Cached CryptexFixup ISO is not bootable — rebuilding it"
+            rm -f "$ISO_DIR/$CRYPTEX_ISO"
+        fi
         info "Injecting CryptexFixup into the OpenCore ISO..."
         CTMP="$WORK_DIR/cryptex-build"
         rm -rf "$CTMP" && mkdir -p "$CTMP"
@@ -278,6 +295,7 @@ PYEOF
         xorriso -indev "$ISO_DIR/$OPENCORE_ISO" -outdev "$ISO_DIR/$CRYPTEX_ISO" \
             -map "$CTMP/BOOT.img" /BOOT.img -boot_image any replay >/dev/null 2>&1 || true
         [[ -s "$ISO_DIR/$CRYPTEX_ISO" ]] || die "Failed to rebuild the OpenCore ISO."
+        iso_bootable "$ISO_DIR/$CRYPTEX_ISO" || die "Rebuilt OpenCore ISO is not bootable."
         rm -rf "$CTMP"
         ok "CryptexFixup OpenCore ISO ready"
     fi
