@@ -244,8 +244,18 @@ qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
 qm set "$VMID" --boot order=ide2
 qm set "$VMID" --efidisk0 "$STORAGE:1,efitype=4m,pre-enrolled-keys=0"
 qm set "$VMID" --virtio0 "$STORAGE:$DISK,cache=unsafe,discard=on"
+# dd instead of import-from: qemu-img's zeroinit filter can hang forever on
+# LVM-thin storage (D-state), while plain sequential writes go through fine.
 info "Importing the recovery disk (can take a while on slow storage)..."
-qm set "$VMID" --sata0 "$STORAGE:0,import-from=$RECOVERY_IMG"
+SIZE_BYTES="$(stat -c%s "$RECOVERY_IMG")"
+SIZE_EXTENTS=$(( (SIZE_BYTES + 4194303) / 4194304 ))   # 4 MiB LVM extents
+SIZE_KIB=$(( SIZE_EXTENTS * 4096 ))
+RECOVERY_VOL="$(pvesm alloc "$STORAGE" "$VMID" '' "$SIZE_KIB" --format raw | grep -o "'[^']*'" | tr -d "'" | tail -n1)"
+[[ -n "$RECOVERY_VOL" ]] || die "Failed to allocate the recovery volume."
+RECOVERY_DEV="$(pvesm path "$RECOVERY_VOL")"
+[[ -n "$RECOVERY_DEV" ]] || die "Failed to resolve the recovery volume path."
+dd if="$RECOVERY_IMG" of="$RECOVERY_DEV" bs=4M conv=fsync status=progress </dev/null
+qm set "$VMID" --sata0 "$RECOVERY_VOL"
 
 ok "VM $VMID created"
 
