@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 
 1. Vérifie l'hôte (Proxmox VE, VT-x/AMD-V) et **choisit le meilleur CPU virtuel que l'hôte supporte** — ça fonctionne sur n'importe quel CPU Intel ou AMD, avec ou sans AVX2
 2. Configure KVM (`ignore_msrs=1`, persistant)
-3. Télécharge l'[ISO OpenCore](https://github.com/LongQT-sea/OpenCore-ISO) (chargeur de démarrage) ; sur les hôtes sans AVX2, il injecte automatiquement [CryptexFixup](https://github.com/acidanthera/CryptexFixup) pour que Tahoe s'installe quand même
+3. Télécharge l'[ISO OpenCore](https://github.com/LongQT-sea/OpenCore-ISO) (chargeur de démarrage), génère un SMBIOS aléatoire (numéro de série, MLB, UUID) correspondant à la version de macOS choisie et le patche ; sur les hôtes sans AVX2, il injecte aussi [CryptexFixup](https://github.com/acidanthera/CryptexFixup) pour que Tahoe s'installe quand même
 4. Télécharge la **recovery officielle macOS Tahoe** depuis les serveurs Apple ([macrecovery](https://github.com/acidanthera/OpenCorePkg))
 5. La convertit et crée une VM entièrement configurée (q35, OVMF, disque et réseau VirtIO)
 
@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 4. Quitter l'utilitaire, choisir **Installer macOS Tahoe** (téléchargement depuis Apple, 30–60 min, la VM redémarre plusieurs fois — toujours laisser OpenCore choisir l'entrée par défaut)
 5. Une fois sur le bureau, détacher le disque de recovery : `qm set <VMID> --delete sata0`
 
-Garder l'ISO OpenCore (`ide2`) attachée : la VM démarre à travers elle.
+Garder le disque de boot OpenCore (`sata1`) attaché : la VM démarre à travers lui.
 
 ## Rendre la VM autonome (une commande)
 
@@ -73,22 +73,22 @@ sudo diskutil mount disk0s1
 cp -R /Volumes/LongQT-OpenCore/EFI_RELEASE/EFI /Volumes/EFI/
 ```
 
-Puis sur l'hôte : `qm set <VMID> --delete ide2 --delete sata0 && qm set <VMID> --boot order=virtio0`
+Puis sur l'hôte : `qm set <VMID> --delete ide2 --delete sata0 --delete sata1 && qm set <VMID> --boot order=virtio0`
 </details>
 
 ## iCloud / iMessage (optionnel)
 
-Les services Apple demandent un numéro de série unique et un hyperviseur masqué :
+Le script génère déjà un SMBIOS aléatoire (numéro de série, MLB, UUID) par VM — suffisant pour que l'installeur et Software Update fonctionnent. Les services Apple (iCloud/iMessage) demandent en plus un hyperviseur masqué :
 
-1. Générer un numéro de série avec [GenSMBIOS](https://github.com/corpnewt/GenSMBIOS) (modèle `iMacPro1,1`) dans `/Volumes/EFI/EFI/OC/config.plist`
-2. Ajouter [VMHide](https://github.com/Carnations-Botanica/VMHide) dans `EFI/OC/Kexts` et dans `config.plist`, avec `vmhState=enabled` dans les boot-args
-3. Redémarrer la VM avant de se connecter
+1. Ajouter [VMHide](https://github.com/Carnations-Botanica/VMHide) dans `EFI/OC/Kexts` et dans `config.plist`, avec `vmhState=enabled` dans les boot-args
+2. Redémarrer la VM avant de se connecter
 
-Utiliser un numéro de série que la page de garantie Apple déclare **invalide**, et garder en tête que se connecter aux services Apple depuis une VM peut enfreindre les conditions d'Apple.
+Vérifier d'abord le numéro de série généré sur la page de garantie Apple — se connecter aux services Apple depuis une VM peut enfreindre les conditions d'Apple, et un numéro qui ressemblerait à un vrai appareil devrait être régénéré avec [GenSMBIOS](https://github.com/corpnewt/GenSMBIOS).
 
 ## Dépannage
 
 - **CPU virtuel** : le script choisit automatiquement un CPU virtuel Intel générique selon ce que l'hôte peut fournir (`Haswell-noTSX-IBRS` avec AVX2, `SandyBridge-IBRS` avec AVX seul, `Nehalem-IBRS` avec SSE4.2), donc la même commande fonctionne sur n'importe quel hôte Intel ou AMD. Les utilisateurs avancés peuvent forcer un modèle avec `CPU_MODEL=...` (ex. `CPU_MODEL=host`).
+- **« An error occurred preparing the software update »** : l'ISO OpenCore d'origine embarque un SMBIOS bidon (`iMac19,1`, numéro de série tout à zéro) que l'installeur Apple refuse. Le script en génère maintenant toujours un vrai, correspondant à la version de macOS choisie — supprimer le cache `/root/macos-tahoe-installer/opencore-boot-<version>.img` et relancer pour le régénérer si la VM a été créée avant ce correctif.
 - **Hôte sans AVX2** : la VM démarre via un petit disque de boot OpenCore (`sata1`) portant CryptexFixup — aucune reconstruction d'ISO. L'étape `finalize` le rapatrie ensuite sur la partition EFI de la VM. Les mises à jour delta de macOS ne sont pas disponibles ; mettre à jour via les installeurs complets.
 - **Boot en boucle / reset immédiat** : vérifier que `cat /sys/module/kvm/parameters/ignore_msrs` renvoie `Y` (redémarrer l'hôte après la première installation si besoin).
 - **Pas de souris/clavier** : utiliser la console noVNC ; un passthrough USB peut être ajouté ensuite.

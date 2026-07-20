@@ -12,7 +12,7 @@ Run it **as root on the Proxmox host**. The script:
 
 1. Checks the host (Proxmox VE, VT-x/AMD-V) and **picks the best virtual CPU the host supports** — it works on any Intel or AMD CPU, with or without AVX2
 2. Configures KVM (`ignore_msrs=1`, persistent)
-3. Downloads the [OpenCore ISO](https://github.com/LongQT-sea/OpenCore-ISO) (boot loader); on non-AVX2 hosts it automatically injects [CryptexFixup](https://github.com/acidanthera/CryptexFixup) so Tahoe still installs
+3. Downloads the [OpenCore ISO](https://github.com/LongQT-sea/OpenCore-ISO) (boot loader), generates a fresh random SMBIOS (serial, MLB, UUID) matching the chosen macOS version, and patches it in; on non-AVX2 hosts it also injects [CryptexFixup](https://github.com/acidanthera/CryptexFixup) so Tahoe still installs
 4. Downloads the **official macOS Tahoe recovery** from Apple's servers ([macrecovery](https://github.com/acidanthera/OpenCorePkg))
 5. Converts it and creates a fully configured VM (q35, OVMF, VirtIO disk & network)
 
@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/ins
 4. Quit Disk Utility, choose **Install macOS Tahoe** (download from Apple, 30–60 min, the VM reboots several times — always let OpenCore pick the default entry)
 5. Once on the desktop, detach the recovery disk: `qm set <VMID> --delete sata0`
 
-Keep the OpenCore ISO (`ide2`) attached — the VM boots through it.
+Keep the OpenCore boot disk (`sata1`) attached — the VM boots through it.
 
 ## Make the VM standalone (one command)
 
@@ -73,22 +73,22 @@ sudo diskutil mount disk0s1
 cp -R /Volumes/LongQT-OpenCore/EFI_RELEASE/EFI /Volumes/EFI/
 ```
 
-Then on the host: `qm set <VMID> --delete ide2 --delete sata0 && qm set <VMID> --boot order=virtio0`
+Then on the host: `qm set <VMID> --delete ide2 --delete sata0 --delete sata1 && qm set <VMID> --boot order=virtio0`
 </details>
 
 ## iCloud / iMessage (optional)
 
-Apple services need a unique serial number and a hidden hypervisor:
+The script already generates a random SMBIOS (serial, MLB, UUID) per VM — enough for the installer and Software Update to work. Apple services (iCloud/iMessage) additionally need a hidden hypervisor:
 
-1. Generate a serial with [GenSMBIOS](https://github.com/corpnewt/GenSMBIOS) (model `iMacPro1,1`) into `/Volumes/EFI/EFI/OC/config.plist`
-2. Add [VMHide](https://github.com/Carnations-Botanica/VMHide) to `EFI/OC/Kexts` and to `config.plist`, with `vmhState=enabled` in boot-args
-3. Reboot the VM before signing in
+1. Add [VMHide](https://github.com/Carnations-Botanica/VMHide) to `EFI/OC/Kexts` and to `config.plist`, with `vmhState=enabled` in boot-args
+2. Reboot the VM before signing in
 
-Use a serial that Apple's coverage page reports as **invalid**, and note that signing in to Apple services from a VM may violate Apple's terms.
+Check the generated serial on Apple's coverage page first — signing in to Apple services from a VM may violate Apple's terms, and a serial that happens to resemble a real device should be regenerated with [GenSMBIOS](https://github.com/corpnewt/GenSMBIOS).
 
 ## Troubleshooting
 
 - **Virtual CPU**: the script auto-selects a generic Intel virtual CPU matching what the host can provide (`Haswell-noTSX-IBRS` with AVX2, `SandyBridge-IBRS` with AVX only, `Nehalem-IBRS` with SSE4.2), so the same command works on any Intel or AMD host. Advanced users can force a model with `CPU_MODEL=...` (e.g. `CPU_MODEL=host`).
+- **"An error occurred preparing the software update"**: the stock OpenCore ISO ships a placeholder SMBIOS (`iMac19,1`, all-zero serial) that Apple's installer rejects. The script now always generates a real one matching the chosen macOS version — delete the cached `/root/macos-tahoe-installer/opencore-boot-<version>.img` and re-run to regenerate it if you built the VM before this fix.
 - **Non-AVX2 host**: the VM boots through a small OpenCore boot disk (`sata1`) carrying CryptexFixup — no ISO rebuild involved. The `finalize` step folds it into the VM's own EFI partition. macOS delta updates are not available; update via full installers.
 - **Boot loop / instant reset**: verify `cat /sys/module/kvm/parameters/ignore_msrs` returns `Y` (reboot the host after first install if needed).
 - **No mouse/keyboard**: use the noVNC console; USB passthrough can be added afterwards.

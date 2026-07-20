@@ -204,10 +204,10 @@ RAM="${RAM:-8192}"
 DISK="${DISK:-80}"
 
 case "$MACOS_VERSION" in
-    tahoe)   MACOS_NAME="Tahoe";   BOARD_ID="Mac-CFF7D910A743CAAF"; OS_ARG="latest" ;;
-    sequoia) MACOS_NAME="Sequoia"; BOARD_ID="Mac-7BA5B2D9E42DDD94"; OS_ARG="default" ;;
-    sonoma)  MACOS_NAME="Sonoma";  BOARD_ID="Mac-827FAC58A8FDFA22"; OS_ARG="default" ;;
-    ventura) MACOS_NAME="Ventura"; BOARD_ID="Mac-B4831CEBD52A0C4C"; OS_ARG="default" ;;
+    tahoe)   MACOS_NAME="Tahoe";   BOARD_ID="Mac-CFF7D910A743CAAF"; OS_ARG="latest";  SMBIOS_PRODUCT="iMac20,1" ;;
+    sequoia) MACOS_NAME="Sequoia"; BOARD_ID="Mac-7BA5B2D9E42DDD94"; OS_ARG="default"; SMBIOS_PRODUCT="iMacPro1,1" ;;
+    sonoma)  MACOS_NAME="Sonoma";  BOARD_ID="Mac-827FAC58A8FDFA22"; OS_ARG="default"; SMBIOS_PRODUCT="MacBookAir8,1" ;;
+    ventura) MACOS_NAME="Ventura"; BOARD_ID="Mac-B4831CEBD52A0C4C"; OS_ARG="default"; SMBIOS_PRODUCT="MacBookPro14,1" ;;
     *) die "Unknown VERSION '$MACOS_VERSION' (tahoe|sequoia|sonoma|ventura)" ;;
 esac
 VM_NAME="${VM_NAME:-macos-$MACOS_VERSION}"
@@ -251,10 +251,8 @@ fi
 
 PKGS=()
 command -v dmg2img >/dev/null 2>&1 || PKGS+=(dmg2img)
-if [[ $NEED_CRYPTEX -eq 1 ]]; then
-    command -v xorriso >/dev/null 2>&1 || PKGS+=(xorriso)
-    command -v mcopy   >/dev/null 2>&1 || PKGS+=(mtools)
-fi
+command -v xorriso  >/dev/null 2>&1 || PKGS+=(xorriso)
+command -v mcopy    >/dev/null 2>&1 || PKGS+=(mtools)
 if [[ ${#PKGS[@]} -gt 0 ]]; then
     info "Installing ${PKGS[*]}..."
     apt-get update -qq </dev/null && apt-get install -y -qq "${PKGS[@]}" >/dev/null </dev/null
@@ -273,19 +271,22 @@ else
     ok "OpenCore ISO downloaded"
 fi
 
-# On non-AVX2 hosts OpenCore must carry CryptexFixup. Rebuilt ISOs are not
+# The stock ISO ships placeholder PlatformInfo (SystemProductName iMac19,1,
+# all-zero serial/MLB/UUID) which macOS's installer/Software Update rejects
+# ("An error occurred preparing the software update"). A real SMBIOS is
+# generated per macOS version and patched into OpenCore's config.plist.
+# On non-AVX2 hosts CryptexFixup is injected too. Rebuilt ISOs are not
 # reliably bootable across xorriso versions, so the patched FAT boot image is
-# instead attached later as a small UEFI boot disk (OVMF boots it natively).
-OC_BOOT_IMG="$WORK_DIR/opencore-cryptex-boot.img"
-if [[ $NEED_CRYPTEX -eq 1 ]]; then
-    if [[ -f "$OC_BOOT_IMG" ]] && mdir -i "$OC_BOOT_IMG" ::/EFI/OC/Kexts/CryptexFixup.kext >/dev/null 2>&1; then
-        ok "CryptexFixup OpenCore boot image already present"
-    else
-        rm -f "$OC_BOOT_IMG"
-        info "Building the CryptexFixup OpenCore boot image..."
-        CTMP="$WORK_DIR/cryptex-build"
-        rm -rf "$CTMP" && mkdir -p "$CTMP"
+# instead attached as a small UEFI boot disk (OVMF boots it natively).
+OC_BOOT_IMG="$WORK_DIR/opencore-boot-${MACOS_VERSION}.img"
+if [[ -f "$OC_BOOT_IMG" ]]; then
+    ok "OpenCore boot image already present"
+else
+    info "Building the OpenCore boot image (SMBIOS: $SMBIOS_PRODUCT)..."
+    CTMP="$WORK_DIR/oc-build"
+    rm -rf "$CTMP" && mkdir -p "$CTMP"
 
+    if [[ $NEED_CRYPTEX -eq 1 ]]; then
         CRYPTEX_ZIP_URL="$(curl -fsSL https://api.github.com/repos/acidanthera/CryptexFixup/releases/latest 2>/dev/null \
             | python3 -c "import json,sys; print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if 'RELEASE' in a['name']][0])" 2>/dev/null || true)"
         # Fallback to a pinned release if the GitHub API is rate-limited
@@ -294,35 +295,52 @@ if [[ $NEED_CRYPTEX -eq 1 ]]; then
         python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
             "$CTMP/cryptex.zip" "$CTMP"
         [[ -d "$CTMP/CryptexFixup.kext" ]] || die "CryptexFixup.kext not found in release archive."
+    fi
 
-        # xorriso may exit non-zero on mere warnings: check the output instead
-        xorriso -osirrox on -indev "$ISO_DIR/$OPENCORE_ISO" \
-            -extract /BOOT.img "$CTMP/BOOT.img" >/dev/null 2>&1 || true
-        [[ -f "$CTMP/BOOT.img" ]] || die "Failed to extract BOOT.img from the OpenCore ISO."
-        chmod +w "$CTMP/BOOT.img"
+    # xorriso may exit non-zero on mere warnings: check the output instead
+    xorriso -osirrox on -indev "$ISO_DIR/$OPENCORE_ISO" \
+        -extract /BOOT.img "$CTMP/BOOT.img" >/dev/null 2>&1 || true
+    [[ -f "$CTMP/BOOT.img" ]] || die "Failed to extract BOOT.img from the OpenCore ISO."
+    chmod +w "$CTMP/BOOT.img"
 
-        mcopy -i "$CTMP/BOOT.img" ::/EFI/OC/config.plist "$CTMP/config.plist"
-        python3 - "$CTMP/config.plist" <<'PYEOF'
-import plistlib, sys
-p = sys.argv[1]
-with open(p, 'rb') as f:
+    mcopy -i "$CTMP/BOOT.img" ::/EFI/OC/config.plist "$CTMP/config.plist"
+    python3 - "$CTMP/config.plist" "$SMBIOS_PRODUCT" "$NEED_CRYPTEX" <<'PYEOF'
+import plistlib, sys, uuid, secrets
+
+path, product, need_cryptex = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
+with open(path, 'rb') as f:
     cfg = plistlib.load(f)
-kexts = cfg['Kernel']['Add']
-if not any(k.get('BundlePath') == 'CryptexFixup.kext' for k in kexts):
-    kexts.append({
-        'Arch': 'x86_64',
-        'BundlePath': 'CryptexFixup.kext',
-        'Comment': 'Rosetta cryptex on non-AVX2 CPUs',
-        'Enabled': True,
-        'ExecutablePath': 'Contents/MacOS/CryptexFixup',
-        'MaxKernel': '',
-        'MinKernel': '22.0.0',
-        'PlistPath': 'Contents/Info.plist',
-    })
-with open(p, 'wb') as f:
+
+charset = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # Apple-style, no ambiguous I/O
+def rnd(n):
+    return ''.join(secrets.choice(charset) for _ in range(n))
+
+generic = cfg['PlatformInfo']['Generic']
+generic['SystemProductName'] = product
+generic['SystemSerialNumber'] = rnd(12)
+generic['MLB'] = rnd(17)
+generic['SystemUUID'] = str(uuid.uuid4()).upper()
+generic['ROM'] = secrets.token_bytes(6)
+
+if need_cryptex:
+    kexts = cfg['Kernel']['Add']
+    if not any(k.get('BundlePath') == 'CryptexFixup.kext' for k in kexts):
+        kexts.append({
+            'Arch': 'x86_64',
+            'BundlePath': 'CryptexFixup.kext',
+            'Comment': 'Rosetta cryptex on non-AVX2 CPUs',
+            'Enabled': True,
+            'ExecutablePath': 'Contents/MacOS/CryptexFixup',
+            'MaxKernel': '',
+            'MinKernel': '22.0.0',
+            'PlistPath': 'Contents/Info.plist',
+        })
+
+with open(path, 'wb') as f:
     plistlib.dump(cfg, f)
 PYEOF
 
+    if [[ $NEED_CRYPTEX -eq 1 ]]; then
         (
             cd "$CTMP/CryptexFixup.kext"
             mmd -i "$CTMP/BOOT.img" "::/EFI/OC/Kexts/CryptexFixup.kext" 2>/dev/null || true
@@ -333,14 +351,18 @@ PYEOF
                 mcopy -i "$CTMP/BOOT.img" "$f" "::/EFI/OC/Kexts/CryptexFixup.kext/$f"
             done
         )
-        mcopy -i "$CTMP/BOOT.img" -o "$CTMP/config.plist" ::/EFI/OC/config.plist
+    fi
+    mcopy -i "$CTMP/BOOT.img" -o "$CTMP/config.plist" ::/EFI/OC/config.plist
 
+    mdir -i "$CTMP/BOOT.img" ::/EFI/OC/config.plist >/dev/null 2>&1 \
+        || die "OpenCore boot image patch failed."
+    if [[ $NEED_CRYPTEX -eq 1 ]]; then
         mdir -i "$CTMP/BOOT.img" ::/EFI/OC/Kexts/CryptexFixup.kext >/dev/null 2>&1 \
             || die "CryptexFixup injection failed."
-        mv "$CTMP/BOOT.img" "$OC_BOOT_IMG"
-        rm -rf "$CTMP"
-        ok "CryptexFixup OpenCore boot image ready"
     fi
+    mv "$CTMP/BOOT.img" "$OC_BOOT_IMG"
+    rm -rf "$CTMP"
+    ok "OpenCore boot image ready"
 fi
 
 # ----------------------------------------------------------- macOS recovery image
@@ -379,10 +401,6 @@ qm create "$VMID" \
 # Light configuration first, heavy disk imports last: if a slow storage
 # stalls an import, the VM is still fully configured and easy to finish.
 qm set "$VMID" --args "-device isa-applesmc,osk=\"$OSK\" -smbios type=2 -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -global nec-usb-xhci.msi=off -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off $CPU_ARGS"
-if [[ $NEED_CRYPTEX -eq 0 ]]; then
-    qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$OPENCORE_ISO,media=cdrom,cache=unsafe"
-    qm set "$VMID" --boot order=ide2
-fi
 qm set "$VMID" --efidisk0 "$STORAGE:1,efitype=4m,pre-enrolled-keys=0"
 qm set "$VMID" --virtio0 "$STORAGE:$DISK,cache=unsafe,discard=on"
 
@@ -416,16 +434,14 @@ else
     qm set "$VMID" --sata0 "$STORAGE:0,import-from=$RECOVERY_IMG"
 fi
 
-if [[ $NEED_CRYPTEX -eq 1 ]]; then
-    info "Attaching the OpenCore boot disk..."
-    OC_VOL="$(import_raw "$OC_BOOT_IMG" || true)"
-    if [[ -n "$OC_VOL" ]]; then
-        qm set "$VMID" --sata1 "$OC_VOL"
-    else
-        qm set "$VMID" --sata1 "$STORAGE:0,import-from=$OC_BOOT_IMG"
-    fi
-    qm set "$VMID" --boot order=sata1
+info "Attaching the OpenCore boot disk..."
+OC_VOL="$(import_raw "$OC_BOOT_IMG" || true)"
+if [[ -n "$OC_VOL" ]]; then
+    qm set "$VMID" --sata1 "$OC_VOL"
+else
+    qm set "$VMID" --sata1 "$STORAGE:0,import-from=$OC_BOOT_IMG"
 fi
+qm set "$VMID" --boot order=sata1
 
 ok "VM $VMID created"
 
@@ -444,6 +460,7 @@ echo
 echo "  VM id      : $VMID"
 echo "  Name       : $VM_NAME"
 echo "  CPU        : $CORES cores (virtual: $CPU_MODEL)"
+echo "  SMBIOS     : $SMBIOS_PRODUCT (random serial/MLB/UUID generated)"
 if [[ $NEED_CRYPTEX -eq 1 ]]; then
     echo "  Note       : non-AVX2 host — OpenCore includes CryptexFixup;"
     echo "               macOS updates require full installers (no deltas)"
@@ -464,11 +481,7 @@ echo "  5. Install macOS $MACOS_NAME (downloads from Apple, ~30-60 min)"
 echo "  6. Once on the macOS desktop, make the VM standalone:"
 echo "       curl -fsSL <this script's URL> | bash -s -- finalize $VMID"
 echo
-if [[ $NEED_CRYPTEX -eq 1 ]]; then
-    echo "  Until then, keep the OpenCore boot disk (sata1): the VM boots through it."
-else
-    echo "  Until then, keep the OpenCore ISO attached: the VM boots through it."
-fi
+echo "  Until then, keep the OpenCore boot disk (sata1): the VM boots through it."
 echo "  Remove everything:            qm destroy $VMID"
 echo
 
