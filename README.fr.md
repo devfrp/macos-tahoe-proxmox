@@ -1,6 +1,8 @@
 # macOS Tahoe sur Proxmox VE — installation en une commande
 
-> 🇬🇧 [English version](README.md)
+*Lire en : **Français** · [English](README.md)*
+
+🌐 **Site :** <https://devfrp.github.io/macos-tahoe-proxmox/>
 
 Crée une machine virtuelle **macOS Tahoe (macOS 26)** prête à installer sur **Proxmox VE** avec une seule commande :
 
