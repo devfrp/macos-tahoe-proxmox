@@ -1,0 +1,30 @@
+[
+ {
+  "mode": "redesign",
+  "depth": "full",
+  "scope": "site",
+  "shape": "Conversational FAQ",
+  "theme": "terrazzo",
+  "axes": "light/geometric-sans/warm",
+  "hero": "Banner",
+  "nav": "slab",
+  "footer": "letter close",
+  "imagery": "none",
+  "photos": [],
+  "entry": "none",
+  "sections": [
+   "hero",
+   "split",
+   "rows",
+   "table",
+   "band",
+   "cards",
+   "cards",
+   "faq"
+  ],
+  "signature": "the curl line on a white card over its hard offset, labelled like a sample",
+  "waived": [],
+  "prompt": "macOS Tahoe on Proxmox installer docs",
+  "date": "2026-10-27"
+ }
+]

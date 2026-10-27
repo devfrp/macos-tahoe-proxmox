@@ -3,387 +3,262 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>macOS Tahoe sur Proxmox VE — installeur en une commande</title>
+<title>macOS Tahoe sur Proxmox VE, installeur en une commande</title>
 <meta name="description" content="Créez une machine virtuelle macOS Tahoe (macOS 26) prête à installer sur Proxmox VE en une seule commande. Fonctionne sur tout hôte Intel ou AMD, avec ou sans AVX2.">
 <meta name="author" content="devfrp">
-<meta property="og:title" content="macOS Tahoe sur Proxmox VE — en une commande">
-<meta property="og:description" content="OpenCore, un SMBIOS neuf, la recovery officielle Apple et une VM entièrement configurée — depuis une ligne curl sur l'hôte Proxmox.">
+<meta property="og:title" content="macOS Tahoe sur Proxmox VE, en une commande">
+<meta property="og:description" content="OpenCore, un SMBIOS neuf, la recovery officielle Apple et une VM entièrement configurée, depuis une ligne curl sur l’hôte Proxmox.">
 <meta property="og:type" content="website">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%230d1013'/><rect x='5' y='7' width='22' height='15' rx='2' fill='none' stroke='%23d072e8' stroke-width='2'/><path d='M12 26 h8 M16 22 v4' fill='none' stroke='%23d072e8' stroke-width='2' stroke-linecap='round'/></svg>">
-<style>
-  :root{
-    /* light: cool datasheet */
-    --bg:#eceff2; --panel:#ffffff; --panel2:#f3f5f7; --term:#12161b;
-    --line:#d3dae0; --line2:#bcc6cf; --ink:#141a20; --dim:#5c6a76;
-    --amber:#8e2ba8; --amber-ink:#6f1f85; --lock:#2f9e44;
-    --grid:#e2e7ec;
-    --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
-    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  }
-  @media (prefers-color-scheme:dark){
-    :root{
-      --bg:#0d1013; --panel:#14181d; --panel2:#191f26; --term:#0a0d10;
-      --line:#262e37; --line2:#3a4753; --ink:#ccd4da; --dim:#7c8791;
-      --amber:#d072e8; --amber-ink:#dd93ef; --lock:#57c96a; --grid:#1a2027;
-    }
-  }
-  :root[data-theme="light"]{
-    --bg:#eceff2; --panel:#ffffff; --panel2:#f3f5f7; --term:#12161b;
-    --line:#d3dae0; --line2:#bcc6cf; --ink:#141a20; --dim:#5c6a76;
-    --amber:#8e2ba8; --amber-ink:#6f1f85; --lock:#2f9e44; --grid:#e2e7ec;
-  }
-  :root[data-theme="dark"]{
-    --bg:#0d1013; --panel:#14181d; --panel2:#191f26; --term:#0a0d10;
-    --line:#262e37; --line2:#3a4753; --ink:#ccd4da; --dim:#7c8791;
-    --amber:#d072e8; --amber-ink:#dd93ef; --lock:#57c96a; --grid:#1a2027;
-  }
-
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
-    line-height:1.62;-webkit-font-smoothing:antialiased;font-size:16px}
-  a{color:var(--amber);text-decoration:none}
-  a:hover{text-decoration:underline}
-  :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-  .wrap{max-width:1000px;margin:0 auto;padding:0 22px}
-  .mono{font-family:var(--mono)}
-  .lab{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
-
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px}
-
-  /* barre haute */
-  .bar{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);
-    backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
-  .bar .wrap{display:flex;align-items:center;gap:18px;height:56px}
-  .logo{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-weight:600;
-    letter-spacing:.02em;color:var(--ink)}
-  .logo svg{display:block}
-  .bar nav{margin-left:auto;display:flex;gap:20px;align-items:center}
-  .bar nav a{font-family:var(--mono);font-size:.8rem;color:var(--dim);letter-spacing:.03em}
-  .bar nav a:hover{color:var(--ink);text-decoration:none}
-  .bar .gh{border:1px solid var(--line2);padding:6px 12px;border-radius:5px;color:var(--ink)}
-  .bar .gh:hover{border-color:var(--amber)}
-  #themetog{background:none;border:1px solid var(--line2);color:var(--dim);border-radius:5px;
-    width:30px;height:30px;cursor:pointer;font-size:.9rem}
-  #themetog:hover{color:var(--ink);border-color:var(--amber)}
-  .langsel{display:inline-flex;border:1px solid var(--line2);border-radius:5px;overflow:hidden;
-    font-family:var(--mono);font-size:.74rem}
-  .langsel a{padding:5px 9px;color:var(--dim);letter-spacing:.04em}
-  .langsel a:hover{color:var(--ink);text-decoration:none}
-  .langsel a.active{background:var(--amber);color:#fff}
-  @media (prefers-color-scheme:dark){.langsel a.active{color:#0d1013}}
-  :root[data-theme="dark"] .langsel a.active{color:#0d1013}
-  :root[data-theme="light"] .langsel a.active{color:#fff}
-  @media(max-width:680px){.bar nav a.opt{display:none}}
-
-  /* hero */
-  .hero{border-bottom:1px solid var(--line);position:relative}
-  .hero .wrap{padding:60px 22px 0}
-  .tag{display:inline-flex;align-items:center;gap:9px}
-  .tag .led{width:8px;height:8px;border-radius:50%;background:var(--lock);
-    box-shadow:0 0 8px 1px color-mix(in srgb,var(--lock) 60%,transparent)}
-  h1{font-size:clamp(2.2rem,6.4vw,3.9rem);line-height:1.02;letter-spacing:-.02em;
-    margin:18px 0 0;text-wrap:balance;font-weight:800}
-  h1 .u{color:var(--amber)}
-  .sub{font-size:clamp(1.02rem,2.3vw,1.24rem);color:var(--dim);max-width:620px;margin:14px 0 0}
-  .cta{display:flex;flex-wrap:wrap;gap:11px;margin:26px 0 34px}
-  .btn{font-family:var(--mono);font-size:.86rem;border-radius:5px;padding:11px 18px;
-    border:1px solid var(--line2);color:var(--ink);cursor:pointer;background:var(--panel);
-    transition:border-color .12s,transform .12s;letter-spacing:.02em}
-  .btn:hover{text-decoration:none;transform:translateY(-1px);border-color:var(--amber)}
-  .btn.p{background:var(--amber);color:#fff;border-color:var(--amber);font-weight:600}
-  @media (prefers-color-scheme:dark){.btn.p{color:#0d1013}}
-  :root[data-theme="dark"] .btn.p{color:#0d1013}
-  :root[data-theme="light"] .btn.p{color:#fff}
-
-  /* commande terminal */
-  .term{background:var(--term);border:1px solid var(--line);border-radius:6px;
-    display:flex;align-items:center;gap:12px;padding:13px 13px 13px 16px;max-width:720px}
-  .term .p{color:var(--amber);font-family:var(--mono);user-select:none}
-  .term code{font-family:var(--mono);color:#d6dee6;font-size:.86rem;flex:1;overflow-x:auto;white-space:nowrap}
-  .term button{font-family:var(--mono);background:#20272f;border:1px solid #313b45;color:#9aa6b1;
-    border-radius:4px;padding:6px 11px;cursor:pointer;font-size:.76rem;white-space:nowrap}
-  .term button:hover{color:#fff;border-color:var(--amber)}
-
-  /* jauges hyperviseur */
-  .scope{margin-top:40px;border-top:1px solid var(--line);position:relative;height:118px}
-  .scope canvas{display:block;width:100%;height:118px}
-  .scope .rd{position:absolute;top:10px;right:16px;font-family:var(--mono);font-size:.68rem;
-    letter-spacing:.12em;color:var(--dim)}
-
-  /* structure de section */
-  .sec{border-bottom:1px solid var(--line);padding:56px 0}
-  .head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
-  .head .idx{font-family:var(--mono);font-size:.72rem;color:var(--amber);letter-spacing:.1em}
-  h2{font-size:clamp(1.45rem,3.6vw,2rem);margin:0;letter-spacing:-.01em;font-weight:750;text-wrap:balance}
-  .lede{color:var(--dim);max-width:660px;margin:14px 0 30px}
-
-  /* modules */
-  .mods{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;
-    grid-template-columns:repeat(auto-fit,minmax(240px,1fr));overflow:hidden}
-  .mod{background:var(--panel);padding:22px}
-  .mod:hover{background:var(--panel2)}
-  .mod .lab{margin-bottom:9px}
-  .mod h3{margin:0 0 5px;font-size:1.04rem}
-  .mod p{margin:0;color:var(--dim);font-size:.92rem}
-  .mod h3 code,.mod p code{font-family:var(--mono);font-size:.86em;color:var(--amber-ink)}
-
-  /* tableau registre */
-  .rdout{border:1px solid var(--line);border-radius:6px;overflow:hidden;overflow-x:auto}
-  .rdout table{width:100%;border-collapse:collapse;min-width:520px}
-  .rdout th{font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;
-    color:var(--dim);text-align:left;padding:11px 16px;background:var(--panel2);border-bottom:1px solid var(--line)}
-  .rdout td{padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top;font-size:.92rem}
-  .rdout tr:last-child td{border-bottom:none}
-  .rdout tr:hover td{background:var(--panel2)}
-  .rdout .v{font-family:var(--mono);color:var(--amber);white-space:nowrap;font-size:.86rem}
-  .rdout .s{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;color:var(--lock)}
-  .rdout .s.open{color:var(--dim)}
-  .rdout td b{font-weight:650} .rdout td span{color:var(--dim)}
-
-  /* flux */
-  .flow{display:grid;gap:12px}
-  .node{border:1px solid var(--line);border-radius:6px;background:var(--panel);padding:16px 18px;
-    display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center}
-  .node .n{font-family:var(--mono);font-size:.82rem;color:var(--amber);white-space:nowrap}
-  .node .d{color:var(--dim);font-size:.92rem}
-  .node.hw{border-color:var(--amber);border-left-width:3px}
-  .flow .arrow{font-family:var(--mono);color:var(--line2);text-align:center;font-size:.8rem;line-height:1}
-
-  /* colonnes install */
-  .cols{display:grid;gap:18px;grid-template-columns:1fr 1fr}
-  @media(max-width:680px){.cols{grid-template-columns:1fr}}
-  pre.blk{background:var(--term);border:1px solid var(--line);border-radius:6px;padding:16px;
-    overflow-x:auto;font-family:var(--mono);font-size:.82rem;color:#d6dee6;line-height:1.7;margin:0}
-  pre.blk .c{color:#6f7c88} pre.blk .f{color:var(--amber)}
-  .cols h3{font-family:var(--mono);font-size:.8rem;letter-spacing:.06em;color:var(--dim);
-    text-transform:uppercase;margin:0 0 10px}
-
-  /* étapes */
-  .steps{list-style:none;padding:0;margin:0;display:grid;gap:10px}
-  .steps li{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start;
-    border:1px solid var(--line);border-radius:6px;padding:14px 16px;background:var(--panel)}
-  .chip{font-family:var(--mono);font-size:.66rem;letter-spacing:.08em;padding:4px 8px;border-radius:4px;
-    text-align:center;font-weight:600;align-self:start}
-  .c-done{background:color-mix(in srgb,var(--lock) 15%,transparent);color:var(--lock);
-    border:1px solid color-mix(in srgb,var(--lock) 40%,transparent)}
-  .c-part{background:color-mix(in srgb,var(--amber) 15%,transparent);color:var(--amber-ink);
-    border:1px solid color-mix(in srgb,var(--amber) 40%,transparent)}
-  .c-card{background:var(--panel2);color:var(--dim);border:1px solid var(--line2)}
-  .steps b{font-weight:650} .steps .d{color:var(--dim);font-size:.92rem}
-  @media(max-width:560px){.steps li{grid-template-columns:1fr}}
-
-  footer{padding:40px 0 64px;color:var(--dim);font-size:.88rem}
-  footer .wrap{display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:flex-start}
-  footer .disc{max-width:560px}
-  footer .links{font-family:var(--mono);font-size:.82rem;display:flex;gap:8px;flex-wrap:wrap}
-  .kbd{font-family:var(--mono);background:var(--panel2);border:1px solid var(--line2);
-    padding:1px 6px;border-radius:4px;font-size:.85em;color:var(--ink)}
-</style>
+<link rel="alternate" hreflang="en" href="index.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Onest:wght@400;500&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>try{var s=localStorage.getItem('mtp-theme');if(s==='dark'||s==='light')document.documentElement.setAttribute('data-theme',s);}catch(e){}</script>
 </head>
 <body>
-
-<header class="bar"><div class="wrap">
-  <a class="logo" href="#top">
-    <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="5" fill="var(--panel2)" stroke="var(--line2)"/><rect x="6" y="8" width="20" height="13" rx="2" fill="none" stroke="var(--amber)" stroke-width="2"/><path d="M12 26 h8 M16 21 v5" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round"/></svg>
-    macos-tahoe-proxmox
-  </a>
-  <nav>
-    <a class="opt" href="#steps">Étapes</a>
-    <a class="opt" href="#options">Options</a>
-    <a href="#install">Installer</a>
-    <span class="langsel" role="group" aria-label="Langue">
-      <a href="index.html">EN</a>
-      <a href="fr.html" class="active" aria-current="page">FR</a>
-    </span>
-    <a class="gh" href="https://github.com/devfrp/macos-tahoe-proxmox">GitHub&nbsp;↗</a>
-    <button id="themetog" title="Changer de thème" aria-label="Basculer thème clair/sombre">◐</button>
-  </nav>
-</div></header>
+<a class="skip" href="#top">Aller au contenu</a>
+<header class="bar">
+  <div class="container bar-inner">
+    <a class="logo" href="#top" aria-label="macos-tahoe-proxmox, haut de la page">macos-tahoe-proxmox</a>
+    <nav class="bar-nav" aria-label="Sections">
+      <a class="opt" href="#steps">Étapes</a>
+      <a class="opt" href="#options">Options</a>
+      <a href="#install">Installer</a>
+    </nav>
+    <div class="bar-end">
+      <span class="langsel" role="group" aria-label="Langue">
+        <a href="index.html">EN</a>
+        <a href="fr.html" class="active" aria-current="page">FR</a>
+      </span>
+      <a class="gh" href="https://github.com/devfrp/macos-tahoe-proxmox">GitHub</a>
+      <button id="themetog" type="button" title="Changer de thème" aria-label="Basculer thème clair/sombre">Thème</button>
+    </div>
+  </div>
+</header>
 
 <main id="top">
-<section class="hero">
-  <div class="wrap">
-    <span class="tag"><span class="led"></span><span class="lab">Proxmox VE · OpenCore · macOS 26 Tahoe</span></span>
-    <h1>macOS Tahoe sur Proxmox,<br><span class="u">en une commande</span>.</h1>
-    <p class="sub">À lancer en root sur l'hôte Proxmox. Le script vérifie la machine, choisit le
-    meilleur CPU virtuel que ton hôte peut présenter, télécharge la recovery officielle Apple et
-    te rend une VM entièrement configurée — sur n'importe quel hôte Intel ou AMD, avec ou sans
-    AVX2.</p>
-    <div class="cta">
-      <a class="btn p" href="#install">Installer</a>
-      <a class="btn" href="#options">Options</a>
-      <a class="btn" href="https://github.com/devfrp/macos-tahoe-proxmox">Sources</a>
+  <section class="hero">
+    <div class="container hero-grid">
+      <div class="hero-text">
+        <h1>macOS Tahoe sur Proxmox, en une commande.</h1>
+        <p class="lead">Une ligne curl sur l’hôte Proxmox monte toute la VM macOS.</p>
+        <div class="cta">
+          <a class="btn btn--primary" href="#install">Installer</a>
+          <a class="btn btn--secondary" href="https://github.com/devfrp/macos-tahoe-proxmox">Sources</a>
+        </div>
+      </div>
+      <figure class="card cmd-card">
+        <figcaption>En root sur l’hôte Proxmox</figcaption>
+        <div class="term">
+          <code id="cmd">curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash</code>
+          <button id="cpb" type="button" onclick="cp()">copier</button>
+        </div>
+        <dl class="label">
+          <div><dt>Hôte</dt><dd>Proxmox VE</dd></div>
+          <div><dt>Démarre par</dt><dd>OpenCore</dd></div>
+          <div><dt>Invité</dt><dd>macOS 26 Tahoe</dd></div>
+          <div><dt>CPU</dt><dd>tout Intel ou AMD, avec ou sans AVX2</dd></div>
+        </dl>
+      </figure>
     </div>
-    <div class="term">
-      <span class="p">#</span>
-      <code id="cmd">curl -fsSL https://raw.githubusercontent.com/devfrp/macos-tahoe-proxmox/main/install.sh | bash</code>
-      <button id="cpb" onclick="cp()">copier</button>
+  </section>
+
+  <section class="sec" id="about">
+    <div class="container">
+      <h2>Que remplace-t-il ?</h2>
+      <div class="ba">
+        <div class="ba-before">
+          <p class="ba-cap">Monter une VM macOS sur Proxmox à la main, c’est</p>
+          <ol class="chores">
+            <li>chercher une image OpenCore</li>
+            <li>y greffer un SMBIOS crédible</li>
+            <li>récupérer une recovery chez Apple</li>
+            <li>la convertir</li>
+            <li>deviner quel CPU virtuel l’invité acceptera</li>
+          </ol>
+        </div>
+        <div class="ba-after">
+          <p>Ce script fait tout d’une traite, et choisit le modèle de CPU d’après ce que ton hôte sait réellement fournir, si bien que la même commande marche sur un Xeon AVX2 comme sur une vieille machine AMD.</p>
+        </div>
+      </div>
     </div>
-  </div>
-  <div class="scope" aria-hidden="true">
-    <span class="rd">q35 · OVMF · VIRTIO · KVM</span>
-    <canvas id="scope"></canvas>
-  </div>
-</section>
+  </section>
 
-<section class="sec" id="about"><div class="wrap">
-  <div class="head"><span class="idx">00</span><h2>Toute la VM, préparée pour toi</h2></div>
-  <p class="lede">Monter une VM macOS sur Proxmox à la main, c'est chercher une image OpenCore,
-  y greffer un SMBIOS crédible, récupérer une recovery chez Apple, la convertir, et deviner quel
-  CPU virtuel l'invité acceptera. Ce script fait tout d'une traite — et choisit le modèle de CPU
-  d'après ce que ton hôte sait réellement fournir, si bien que la même commande marche sur un
-  Xeon AVX2 comme sur une vieille machine AMD.</p>
-</div></section>
+  <section class="sec sec--l" id="steps">
+    <div class="container">
+      <div class="head">
+        <h2>Que lance-t-il ?</h2>
+        <p class="lead">Cinq étapes, sur l’hôte Proxmox, en root.</p>
+      </div>
+      <ol class="runs">
+        <li><span class="code">contrôles</span><p>Vérifie Proxmox VE et VT-x/AMD-V, puis <b>choisit le meilleur CPU virtuel que l’hôte peut présenter</b> : fonctionne sur tout CPU Intel ou AMD, avec ou sans AVX2</p></li>
+        <li><span class="code">kvm</span><p>Configure KVM : <code>ignore_msrs=1</code>, rendu persistant</p></li>
+        <li class="hw"><span class="code">opencore</span><p>Télécharge l’<a href="https://github.com/LongQT-sea/OpenCore-ISO">ISO OpenCore</a>, génère un <b>SMBIOS aléatoire neuf</b> (numéro de série, MLB, UUID) correspondant à la version de macOS choisie et l’y injecte ; sur les hôtes sans AVX2 il ajoute aussi <a href="https://github.com/acidanthera/CryptexFixup">CryptexFixup</a> pour que Tahoe s’installe quand même</p></li>
+        <li><span class="code">recovery</span><p>Télécharge la <b>recovery macOS officielle</b> depuis les serveurs Apple, via <a href="https://github.com/acidanthera/OpenCorePkg">macrecovery</a></p></li>
+        <li><span class="code">vm</span><p>La convertit et crée la VM : q35, OVMF, disque et réseau VirtIO</p></li>
+      </ol>
+    </div>
+  </section>
 
-<section class="sec" id="steps"><div class="wrap">
-  <div class="head"><span class="idx">01</span><h2>Ce que fait le script</h2></div>
-  <p class="lede">Cinq étapes, sur l'hôte Proxmox, en root.</p>
-  <div class="flow">
-    <div class="node"><span class="n">1 · contrôles</span><span class="d">Vérifie Proxmox VE et VT-x/AMD-V, puis <b>choisit le meilleur CPU virtuel que l'hôte peut présenter</b> — fonctionne sur tout CPU Intel ou AMD, avec ou sans AVX2</span></div>
-    <div class="arrow">↓</div>
-    <div class="node"><span class="n">2 · kvm</span><span class="d">Configure KVM : <code class="mono">ignore_msrs=1</code>, rendu persistant</span></div>
-    <div class="arrow">↓</div>
-    <div class="node hw"><span class="n">3 · opencore</span><span class="d">Télécharge l'<a href="https://github.com/LongQT-sea/OpenCore-ISO">ISO OpenCore</a>, génère un <b>SMBIOS aléatoire neuf</b> (numéro de série, MLB, UUID) correspondant à la version de macOS choisie et l'y injecte — sur les hôtes sans AVX2 il ajoute aussi <a href="https://github.com/acidanthera/CryptexFixup">CryptexFixup</a> pour que Tahoe s'installe quand même</span></div>
-    <div class="arrow">↓</div>
-    <div class="node"><span class="n">4 · recovery</span><span class="d">Télécharge la <b>recovery macOS officielle</b> depuis les serveurs Apple, via <a href="https://github.com/acidanthera/OpenCorePkg">macrecovery</a></span></div>
-    <div class="arrow">↓</div>
-    <div class="node"><span class="n">5 · vm</span><span class="d">La convertit et crée la VM : q35, OVMF, disque et réseau VirtIO</span></div>
-  </div>
-</div></section>
+  <section class="sec" id="options">
+    <div class="container">
+      <div class="head">
+        <h2>Que puis-je régler ?</h2>
+        <p class="lead">Lancé dans un terminal, il demande l’essentiel (version de macOS, stockage, RAM, taille du disque), Entrée acceptant les valeurs par défaut. Chaque réglage est aussi une variable d’environnement, qui saute la question correspondante ; sans terminal, les valeurs par défaut s’appliquent, donc l’automatisation reste non interactive.</p>
+      </div>
+      <div class="spec-wrap"><table class="spec">
+        <thead><tr><th>Variable</th><th>Défaut</th><th>Ce qu’elle règle</th></tr></thead>
+        <tbody>
+          <tr><td class="code">VMID</td><td class="code">premier id libre</td><td>Identifiant de la VM Proxmox</td></tr>
+          <tr><td class="code">VM_NAME</td><td class="code">macos-tahoe</td><td>Nom de la VM</td></tr>
+          <tr><td class="code">CORES</td><td class="code">4</td><td>Cœurs CPU</td></tr>
+          <tr><td class="code">RAM</td><td class="code">8192</td><td>RAM en Mio</td></tr>
+          <tr><td class="code">DISK</td><td class="code">80</td><td>Taille du disque principal en Gio</td></tr>
+          <tr><td class="code">STORAGE</td><td class="code">local-lvm</td><td>Stockage des disques de la VM</td></tr>
+          <tr><td class="code">ISO_STORAGE</td><td class="code">local</td><td>Stockage des ISO</td></tr>
+          <tr><td class="code">BRIDGE</td><td class="code">vmbr0</td><td>Bridge réseau</td></tr>
+          <tr><td class="code">START</td><td class="code">1</td><td>Démarrer la VM à la fin (<code>0</code> pour désactiver)</td></tr>
+          <tr><td class="code">CPU_MODEL</td><td class="code">auto</td><td>Modèle de CPU virtuel présenté à macOS: choisi automatiquement selon l’hôte</td></tr>
+          <tr><td class="code">VERSION</td><td class="code">tahoe</td><td>Version de macOS : <code>tahoe</code>, <code>sequoia</code>, <code>sonoma</code>, <code>ventura</code></td></tr>
+          <tr><td class="code">INTERACTIVE</td><td class="code">1</td><td><code>0</code> désactive les questions dans le terminal</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
 
-<section class="sec" id="options"><div class="wrap">
-  <div class="head"><span class="idx">02</span><h2>Options</h2></div>
-  <p class="lede">Lancé dans un terminal, il demande l'essentiel — version de macOS, stockage,
-  RAM, taille du disque — Entrée acceptant les valeurs par défaut. Chaque réglage est aussi une
-  variable d'environnement, qui saute la question correspondante ; sans terminal, les valeurs par
-  défaut s'appliquent, donc l'automatisation reste non interactive.</p>
-  <div class="rdout"><table>
-    <thead><tr><th>Variable</th><th>Défaut</th><th>Ce qu'elle règle</th></tr></thead>
-    <tbody>
-      <tr><td class="v">VMID</td><td class="v">premier id libre</td><td>Identifiant de la VM Proxmox</td></tr>
-      <tr><td class="v">VM_NAME</td><td class="v">macos-tahoe</td><td>Nom de la VM</td></tr>
-      <tr><td class="v">CORES</td><td class="v">4</td><td>Cœurs CPU</td></tr>
-      <tr><td class="v">RAM</td><td class="v">8192</td><td>RAM en Mio</td></tr>
-      <tr><td class="v">DISK</td><td class="v">80</td><td>Taille du disque principal en Gio</td></tr>
-      <tr><td class="v">STORAGE</td><td class="v">local-lvm</td><td>Stockage des disques de la VM</td></tr>
-      <tr><td class="v">ISO_STORAGE</td><td class="v">local</td><td>Stockage des ISO</td></tr>
-      <tr><td class="v">BRIDGE</td><td class="v">vmbr0</td><td>Bridge réseau</td></tr>
-      <tr><td class="v">START</td><td class="v">1</td><td>Démarrer la VM à la fin (<code class="mono">0</code> pour désactiver)</td></tr>
-      <tr><td class="v">CPU_MODEL</td><td class="v">auto</td><td>Modèle de CPU virtuel présenté à macOS — choisi automatiquement selon l'hôte</td></tr>
-      <tr><td class="v">VERSION</td><td class="v">tahoe</td><td>Version de macOS : <code class="mono">tahoe</code>, <code class="mono">sequoia</code>, <code class="mono">sonoma</code>, <code class="mono">ventura</code></td></tr>
-      <tr><td class="v">INTERACTIVE</td><td class="v">1</td><td><code class="mono">0</code> désactive les questions dans le terminal</td></tr>
-    </tbody>
-  </table></div>
-</div></section>
+  <section class="band" id="install">
+    <div class="container band-grid">
+      <div>
+        <h2>De quoi ai-je besoin ?</h2>
+        <p class="big"><span class="big-num">7.2</span><span class="big-cap">Proxmox VE <b>7.2 ou plus récent</b></span></p>
+      </div>
+      <ul class="needs">
+        <li>un hôte Intel/AMD 64 bits avec la virtualisation activée</li>
+        <li>au moins <b>SSE4.2</b> (AVX2 recommandé)</li>
+        <li>~5&nbsp;Go libres sur le stockage des ISO plus le disque de la VM</li>
+        <li>un accès Internet sur l’hôte <em>et</em> dans la VM</li>
+      </ul>
+    </div>
+  </section>
 
-<section class="sec" id="install"><div class="wrap">
-  <div class="head"><span class="idx">03</span><h2>Installer</h2></div>
-  <p class="lede">Proxmox VE <b>7.2 ou plus récent</b>, un hôte Intel/AMD 64 bits avec la
-  virtualisation activée et au moins <b>SSE4.2</b> (AVX2 recommandé), ~5&nbsp;Go libres sur le
-  stockage des ISO plus le disque de la VM, et un accès Internet sur l'hôte <em>et</em> dans la VM.</p>
-  <div class="cols">
-    <div>
-      <h3>En une ligne</h3>
-      <pre class="blk"><span class="c"># en root sur l'hôte Proxmox</span>
+  <section class="sec sec--tight" aria-label="Commandes d’installation">
+    <div class="container cards">
+      <div class="cards-col">
+        <figure class="card code-card">
+          <figcaption>En une ligne</figcaption>
+<pre><span class="c"># en root sur l’hôte Proxmox</span>
 curl -fsSL https://raw.githubusercontent.com/<span class="f">devfrp/macos-tahoe-proxmox</span>/main/install.sh | bash
-
 <span class="c"># avec des réglages, sans aucune question</span>
 curl -fsSL …/install.sh | \
-  <span class="f">VMID=990 CORES=8 RAM=16384 DISK=120 STORAGE=local-zfs</span> bash</pre>
-      <h3 style="margin-top:18px">Désinstaller</h3>
-      <pre class="blk">qm destroy &lt;VMID&gt;
+<span class="f">VMID=990 CORES=8 RAM=16384 DISK=120 STORAGE=local-zfs</span> bash</pre>
+        </figure>
+        <figure class="card code-card">
+          <figcaption>Désinstaller</figcaption>
+<pre>qm destroy &lt;VMID&gt;
 rm -rf /root/macos-tahoe-installer</pre>
-    </div>
-    <div>
-      <h3>Après le script</h3>
-      <pre class="blk"><span class="c"># 1. la VM démarre seule (sauf START=0)</span>
+        </figure>
+      </div>
+      <figure class="card code-card">
+        <figcaption>Après le script</figcaption>
+<pre><span class="c"># 1. la VM démarre seule (sauf START=0)</span>
 <span class="c"># 2. ouvrir la console, laisser OpenCore booter</span>
 <span class="c">#    macOS Base System</span>
-<span class="c"># 3. Utilitaire de disque → effacer le gros</span>
+<span class="c"># 3. Utilitaire de disque, effacer le gros</span>
 <span class="c">#    disque VirtIO (APFS, table GUID)</span>
 <span class="c"># 4. quitter, puis Installer macOS Tahoe</span>
-<span class="c">#    (30-60 min, plusieurs redémarrages —</span>
-<span class="c">#     toujours laisser OpenCore choisir l'entrée</span>
+<span class="c">#    (30 à 60 min, plusieurs redémarrages ;</span>
+<span class="c">#     toujours laisser OpenCore choisir l’entrée</span>
 <span class="c">#     par défaut)</span>
 <span class="c"># 5. sur le bureau, détacher le disque recovery :</span>
 qm set &lt;VMID&gt; --delete sata0</pre>
-      <p class="lede" style="margin:12px 0 0;font-size:.92rem">Garde le disque de boot OpenCore
-      (<code class="mono">sata1</code>) attaché — c'est par lui que la VM démarre.</p>
+        <p class="note">Garde le disque de boot OpenCore (<code>sata1</code>) attaché : c’est par lui que la VM démarre.</p>
+      </figure>
     </div>
-  </div>
-</div></section>
+  </section>
 
-<section class="sec" id="standalone"><div class="wrap">
-  <div class="head"><span class="idx">04</span><h2>Rendre la VM autonome</h2></div>
-  <p class="lede">Une fois macOS installé, ceci copie OpenCore sur la partition EFI de la VM,
-  détache les supports d'installation et redémarre la VM depuis son disque — à lancer sur l'hôte
-  Proxmox.</p>
-  <div class="cols">
-    <div>
-      <h3>Une commande</h3>
-      <pre class="blk">curl -fsSL https://raw.githubusercontent.com/<span class="f">devfrp/macos-tahoe-proxmox</span>/main/install.sh \
-  | bash -s -- <span class="f">finalize &lt;VMID&gt;</span></pre>
-    </div>
-    <div>
-      <h3>Alternative manuelle</h3>
-      <pre class="blk"><span class="c"># depuis macOS</span>
+  <section class="sec sec--l" id="standalone">
+    <div class="container">
+      <div class="head">
+        <h2>Comment la rendre autonome ?</h2>
+        <p class="lead">Une fois macOS installé, ceci copie OpenCore sur la partition EFI de la VM, détache les supports d’installation et redémarre la VM depuis son disque. À lancer sur l’hôte Proxmox.</p>
+      </div>
+      <div class="cards cards--even">
+        <figure class="card code-card">
+          <figcaption>Une commande</figcaption>
+<pre>curl -fsSL https://raw.githubusercontent.com/<span class="f">devfrp/macos-tahoe-proxmox</span>/main/install.sh \
+| bash -s -- <span class="f">finalize &lt;VMID&gt;</span></pre>
+        </figure>
+        <figure class="card code-card">
+          <figcaption>Alternative manuelle</figcaption>
+<pre><span class="c"># depuis macOS</span>
 sudo diskutil mount disk0s1
 cp -R /Volumes/LongQT-OpenCore/EFI_RELEASE/EFI /Volumes/EFI/
-
-<span class="c"># puis sur l'hôte</span>
+<span class="c"># puis sur l’hôte</span>
 qm set &lt;VMID&gt; --delete ide2 --delete sata0 --delete sata1
 qm set &lt;VMID&gt; --boot order=virtio0</pre>
+        </figure>
+      </div>
+      <div class="aside">
+        <h3>iCloud / iMessage (facultatif)</h3>
+        <p>Le script génère déjà un SMBIOS aléatoire par VM, suffisant pour l’installeur et les mises à jour logicielles. Les services Apple exigent en plus un hyperviseur masqué : ajoute <a href="https://github.com/Carnations-Botanica/VMHide">VMHide</a> dans <code>EFI/OC/Kexts</code> et dans <code>config.plist</code>, avec <code>vmhState=enabled</code> dans les boot-args, puis redémarre la VM avant de te connecter. Vérifie d’abord le numéro de série généré sur la page de couverture Apple : se connecter aux services Apple depuis une VM peut enfreindre les conditions d’Apple, et un numéro qui ressemblerait à celui d’un vrai appareil doit être régénéré avec <a href="https://github.com/corpnewt/GenSMBIOS">GenSMBIOS</a>.</p>
+      </div>
     </div>
-  </div>
-  <div class="head" style="margin-top:40px"><span class="idx">04.1</span><h2 style="font-size:1.2rem">iCloud / iMessage (facultatif)</h2></div>
-  <p class="lede">Le script génère déjà un SMBIOS aléatoire par VM — suffisant pour l'installeur
-  et les mises à jour logicielles. Les services Apple exigent en plus un hyperviseur masqué :
-  ajoute <a href="https://github.com/Carnations-Botanica/VMHide">VMHide</a> dans
-  <code class="mono">EFI/OC/Kexts</code> et dans <code class="mono">config.plist</code>, avec
-  <code class="mono">vmhState=enabled</code> dans les boot-args, puis redémarre la VM avant de te
-  connecter. Vérifie d'abord le numéro de série généré sur la page de couverture Apple — se
-  connecter aux services Apple depuis une VM peut enfreindre les conditions d'Apple, et un
-  numéro qui ressemblerait à celui d'un vrai appareil doit être régénéré avec
-  <a href="https://github.com/corpnewt/GenSMBIOS">GenSMBIOS</a>.</p>
-</div></section>
+  </section>
 
-<section class="sec" id="trouble"><div class="wrap">
-  <div class="head"><span class="idx">05</span><h2>Dépannage</h2></div>
-  <p class="lede">Les cinq choses qui coincent vraiment.</p>
-  <ul class="steps">
-    <li><span class="chip c-done">CPU VIRTUEL</span><div><b>Choisi automatiquement</b> · <span class="d">un CPU virtuel Intel générique correspondant à ce que l'hôte peut fournir — <code class="mono">Haswell-noTSX-IBRS</code> avec AVX2, <code class="mono">SandyBridge-IBRS</code> avec AVX seul, <code class="mono">Nehalem-IBRS</code> avec SSE4.2. On peut en forcer un avec <code class="mono">CPU_MODEL=…</code> (ex. <code class="mono">CPU_MODEL=host</code>).</span></div></li>
-    <li><span class="chip c-part">MISE À JOUR</span><div><b>« An error occurred preparing the software update »</b> · <span class="d">l'ISO OpenCore d'origine embarque un SMBIOS bouche-trou (<code class="mono">iMac19,1</code>, série à zéro) que l'installeur Apple refuse. Le script en génère désormais toujours un vrai — supprime le cache <code class="mono">/root/macos-tahoe-installer/opencore-boot-&lt;version&gt;.img</code> et relance pour le régénérer si la VM a été créée avant ce correctif.</span></div></li>
-    <li><span class="chip c-part">SANS AVX2</span><div><b>Hôte sans AVX2</b> · <span class="d">la VM démarre par un petit disque de boot OpenCore (<code class="mono">sata1</code>) porteur de CryptexFixup — aucune reconstruction d'ISO, et <code class="mono">finalize</code> le replie dans la partition EFI de la VM. Les mises à jour delta ne sont pas disponibles ; mettre à jour via les installeurs complets.</span></div></li>
-    <li><span class="chip c-card">BOUCLE DE BOOT</span><div><b>Redémarrage immédiat</b> · <span class="d">vérifie que <code class="mono">cat /sys/module/kvm/parameters/ignore_msrs</code> renvoie <code class="mono">Y</code> — redémarre l'hôte après la première installation si besoin.</span></div></li>
-    <li><span class="chip c-card">CONSOLE</span><div><b>Pas de souris/clavier, affichage lent</b> · <span class="d">utilise la console noVNC ; le passthrough USB peut s'ajouter ensuite. Un affichage lent est normal — la VM n'a pas d'accélération GPU. Le passthrough GPU est possible mais hors sujet ici.</span></div></li>
-  </ul>
-</div></section>
+  <section class="sec sec--l" id="trouble">
+    <div class="container trouble">
+      <div class="head head--side">
+        <h2>Qu’est-ce qui coince ?</h2>
+        <p class="lead">Les cinq choses qui coincent vraiment.</p>
+      </div>
+      <div class="faq">
+        <details open>
+          <summary><span class="q">Choisi automatiquement</span><span class="tag">CPU virtuel</span></summary>
+          <p>Un CPU virtuel Intel générique correspondant à ce que l’hôte peut fournir : <code>Haswell-noTSX-IBRS</code> avec AVX2, <code>SandyBridge-IBRS</code> avec AVX seul, <code>Nehalem-IBRS</code> avec SSE4.2. On peut en forcer un avec <code>CPU_MODEL=…</code> (ex. <code>CPU_MODEL=host</code>).</p>
+        </details>
+        <details>
+          <summary><span class="q">“An error occurred preparing the software update”</span><span class="tag">mise à jour</span></summary>
+          <p>L’ISO OpenCore d’origine embarque un SMBIOS bouche-trou (<code>iMac19,1</code>, série à zéro) que l’installeur Apple refuse. Le script en génère désormais toujours un vrai ; supprime le cache <code>/root/macos-tahoe-installer/opencore-boot-&lt;version&gt;.img</code> et relance pour le régénérer si la VM a été créée avant ce correctif.</p>
+        </details>
+        <details>
+          <summary><span class="q">Hôte sans AVX2</span><span class="tag">sans AVX2</span></summary>
+          <p>La VM démarre par un petit disque de boot OpenCore (<code>sata1</code>) porteur de CryptexFixup : aucune reconstruction d’ISO, et <code>finalize</code> le replie dans la partition EFI de la VM. Les mises à jour delta ne sont pas disponibles ; mettre à jour via les installeurs complets.</p>
+        </details>
+        <details>
+          <summary><span class="q">Redémarrage immédiat</span><span class="tag">boucle de boot</span></summary>
+          <p>Vérifie que <code>cat /sys/module/kvm/parameters/ignore_msrs</code> renvoie <code>Y</code> ; redémarre l’hôte après la première installation si besoin.</p>
+        </details>
+        <details>
+          <summary><span class="q">Pas de souris/clavier, affichage lent</span><span class="tag">console</span></summary>
+          <p>Utilise la console noVNC ; le passthrough USB peut s’ajouter ensuite. Un affichage lent est normal : la VM n’a pas d’accélération GPU. Le passthrough GPU est possible mais hors sujet ici.</p>
+        </details>
+      </div>
+    </div>
+  </section>
 </main>
 
-<footer><div class="wrap">
-  <div class="disc"><b class="mono">macos-tahoe-proxmox</b> · Repose sur
-    <a href="https://github.com/LongQT-sea/OpenCore-ISO">LongQT-sea/OpenCore-ISO</a> et
-    <a href="https://github.com/acidanthera/OpenCorePkg">acidanthera/OpenCorePkg</a>.<br>
-    macOS est sous licence Apple pour du matériel Apple uniquement. Ce projet vise le test et le
-    développement — vérifie que ton usage respecte l'<a href="https://www.apple.com/legal/sla/">EULA
-    Apple</a>. Aucun logiciel Apple n'est redistribué ici : l'image de recovery est téléchargée
-    directement depuis les serveurs Apple.</div>
-  <div class="links">
-    <a href="https://github.com/devfrp/macos-tahoe-proxmox">GitHub</a><span>·</span>
-    <a href="https://github.com/devfrp/macos-tahoe-proxmox/blob/main/README.fr.md">README</a><span>·</span>
-    <a href="index.html">English</a><span>·</span>
-    <a href="https://devfrp.github.io">devfrp.github.io</a>
+<footer class="foot">
+  <div class="container foot-grid">
+    <div class="disc">
+      <p><b>macos-tahoe-proxmox</b> repose sur <a href="https://github.com/LongQT-sea/OpenCore-ISO">LongQT-sea/OpenCore-ISO</a> et <a href="https://github.com/acidanthera/OpenCorePkg">acidanthera/OpenCorePkg</a>.</p>
+      <p>macOS est sous licence Apple pour du matériel Apple uniquement. Ce projet vise le test et le développement : vérifie que ton usage respecte l’<a href="https://www.apple.com/legal/sla/">EULA Apple</a>. Aucun logiciel Apple n’est redistribué ici : l’image de recovery est téléchargée directement depuis les serveurs Apple.</p>
+    </div>
+    <div class="signoff">
+      <ul class="links">
+        <li><a href="https://github.com/devfrp/macos-tahoe-proxmox">GitHub</a></li>
+        <li><a href="https://github.com/devfrp/macos-tahoe-proxmox/blob/main/README.fr.md">Readme</a></li>
+        <li><a href="index.html">English</a></li>
+      </ul>
+      <p class="sign">Fait par <a href="https://devfrp.github.io">devfrp</a></p>
+    </div>
   </div>
-</div></footer>
+</footer>
 
 <script>
 (function(){
-  // thème (persisté)
+  // theme (persisted)
   var root=document.documentElement, tog=document.getElementById('themetog');
-  var saved=null; try{saved=localStorage.getItem('mtp-theme');}catch(e){}
-  if(saved==='dark'||saved==='light') root.setAttribute('data-theme',saved);
   function cur(){var t=root.getAttribute('data-theme');
     if(t) return t;
     return matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
@@ -391,60 +266,11 @@ qm set &lt;VMID&gt; --boot order=virtio0</pre>
     var n=cur()==='dark'?'light':'dark';
     root.setAttribute('data-theme',n);
     try{localStorage.setItem('mtp-theme',n);}catch(e){}
-    draw(true);
   });
-
-  // copie
+  // copy
   window.cp=function(){var b=document.getElementById('cpb');
     navigator.clipboard.writeText(document.getElementById('cmd').textContent).then(function(){
-      b.textContent='copié ✓'; setTimeout(function(){b.textContent='copier';},1500);});};
-
-  // jauges hyperviseur
-  var cv=document.getElementById('scope'), ctx=cv.getContext('2d'), t=0, raf=null;
-  var reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
-  var rows=[{k:'vCPU',b:0.34,a:0.30,s:1.7},{k:'RAM',b:0.58,a:0.10,s:0.7},{k:'DISK',b:0.22,a:0.20,s:2.6}];
-  function accent(){return getComputedStyle(root).getPropertyValue('--amber').trim()||'#d072e8';}
-  function grid(){return getComputedStyle(root).getPropertyValue('--grid').trim()||'#1a2027';}
-  function dim(){return getComputedStyle(root).getPropertyValue('--dim').trim()||'#7c8791';}
-  function line2(){return getComputedStyle(root).getPropertyValue('--line2').trim()||'#3a4753';}
-  function size(){var d=Math.min(devicePixelRatio||1,2);
-    cv.width=cv.clientWidth*d; cv.height=cv.clientHeight*d; ctx.setTransform(d,0,0,d,0,0);}
-  function draw(once){
-    var w=cv.clientWidth,h=cv.clientHeight;
-    ctx.clearRect(0,0,w,h);
-    ctx.strokeStyle=grid(); ctx.lineWidth=1;
-    for(var x=0;x<w;x+=44){ctx.beginPath();ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,h);ctx.stroke();}
-    var inset=Math.max(22,(w-1000)/2+22), gh=15, top=(h-(rows.length*gh+(rows.length-1)*11))/2;
-    for(var r=0;r<rows.length;r++){
-      var row=rows[r], y=top+r*(gh+11);
-      var v=row.b+row.a*(0.5+0.5*Math.sin(t*row.s+r*1.7))*(0.7+0.3*Math.sin(t*row.s*2.3+r));
-      if(v<0.04) v=0.04; if(v>0.98) v=0.98;
-      // libellé
-      ctx.fillStyle=dim(); ctx.font='10px ui-monospace,SFMono-Regular,Menlo,monospace';
-      ctx.textBaseline='middle'; ctx.textAlign='left';
-      ctx.fillText(row.k, inset, y+gh/2);
-      // rail
-      var bx=inset+44, bw=Math.max(60,w-inset*2-44-46);
-      ctx.strokeStyle=line2(); ctx.globalAlpha=.7; ctx.lineWidth=1;
-      ctx.strokeRect(bx+.5,y+.5,bw,gh); ctx.globalAlpha=1;
-      // remplissage segmenté
-      var seg=7, gap=3, n=Math.floor((bw+gap)/(seg+gap)), lit=Math.round(n*v);
-      for(var i=0;i<n;i++){
-        var on=i<lit;
-        ctx.fillStyle=on?accent():line2();
-        ctx.globalAlpha=on?(i>lit-3?1:.72):.22;
-        ctx.fillRect(bx+3+i*(seg+gap), y+3, seg, gh-6);
-      }
-      ctx.globalAlpha=1;
-      // pourcentage
-      ctx.fillStyle=accent(); ctx.textAlign='right';
-      ctx.fillText(Math.round(v*100)+'%', w-inset, y+gh/2);
-    }
-    if(once) return;
-    t+=0.012; raf=requestAnimationFrame(function(){draw(false);});
-  }
-  function start(){size(); if(reduce){draw(true);} else {if(raf)cancelAnimationFrame(raf); draw(false);}}
-  addEventListener('resize',start); start();
+      b.textContent='copié'; setTimeout(function(){b.textContent='copier';},1500);});};
 })();
 </script>
 </body>
